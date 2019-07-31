@@ -1,5 +1,5 @@
 #Multi Threading Coming Soon
-function Invoke-LinEnum {
+function Invoke-Linux {
     param (
         [string]$Csv = '.\linux.csv',
         [string]$LinEnumPath
@@ -44,4 +44,4 @@ function Invoke-LinEnum {
         Remove-SSHSession -SSHSession $session
     }
 }
-#Invoke-LinEnum
+#Invoke-Linux
