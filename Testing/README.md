@@ -4,7 +4,7 @@ https://docs.microsoft.com/en-us/windows/security/threat-protection/security-com
 
 https://github.com/CISOfy/lynis
 
-# POCS
+# POC'S
 
 Test-Windows.ps1
 
