@@ -16,7 +16,7 @@ https://www.tenable.com/products/nessus
 	Invoke-Domain		-  Runs simple checks on the domain
   
 ### Test-Linux.ps1
-	Invoke-Linux		-  Runs LinEnum on multiple hosts with Posh-SSH
+	Invoke-Linux		-  Run Bash script on multiple hosts simultaneously with Posh-SSH and PoshRSJob
 
 ### bloodhoundanalytics.py
 	Gather Active Directory statistics from BloodHound data
