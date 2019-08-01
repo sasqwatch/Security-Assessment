@@ -1,55 +1,81 @@
-#Multi Threading Coming Soon
+#Multi Threading :D
 #linux.csv
     #ComputerName Username Password
     #------------ -------- --------
     #192.168.1.40 cube     cube
-function Invoke-Linux {
+#Generates LinEnum reports for multiple hosts
+#Install-Module -Name Posh-SSH -Force
+#Install-Module -Name PoshRSJob -Force
+function Invoke-Linux{
     param (
-        [string]$Csv = '.\linux.csv',
-        [string]$LinEnumPath
+        [Parameter(Position=0,ValueFromPipeline=$True)]
+        $Computers = '.\linux.csv',
+        [ValidateScript({Test-Path -Path $_ })]
+        [string]$ScriptPath,
+        [ValidateRange(1,100)] 
+        [Int]$Threads = 10
     )
-    #Generates LinEnum reports for multiple hosts
-    #Install-Module -Name Posh-SSH -Force
-
-    #Create folder
-    if(-not(Test-Path "$((Get-Location).path)\linux")){
-        New-Item -ItemType Directory -Name 'linux' -Path (Get-Location).path | Out-Null
+    #Import ComputerName, Username, Passwords from CSV
+    if($Computers.GetType().name -like 'String'){
+        $Computers = import-csv $Computers
+    }
+    if(-not($Computers)){
+        Write-Host "[-] Could not import computers" -ForegroundColor Red
+        return
+    }
+    #import dependencies
+    try{
+        Import-Module PoshRSJob -ErrorAction Stop
+        Import-Module Posh-SSH -ErrorAction Stop
+    }catch{
+        Write-Output "[-] $($_.Exception.Message)"
+        return
+    }
+    #Create output folder
+    $OutputFolder = "$((Get-Location).path)\linux"
+    if(-not(Test-Path $OutputFolder)){
+        New-Item -ItemType Directory -Name 'linux' -Path "." | Out-Null
     }
     #Get latest LinEnum.sh
     #Use a local copy for extended testing
-    if($LinEnumPath){
-        try{
-            $LinEnum = Get-Content $LinEnumPath -ErrorAction Stop
-        }catch{
-            Write-Host '[-]Bad LinEnumPath'
-            return
-        }
+    if($ScriptPath){
+        $Script = Get-Content $ScriptPath -ErrorAction Stop
     }else{
         try{
-            $LinEnum = (new-object net.webclient).downloadstring('https://raw.githubusercontent.com/rebootuser/LinEnum/master/LinEnum.sh')
+            $Script = (new-object net.webclient).downloadstring('https://raw.githubusercontent.com/rebootuser/LinEnum/master/LinEnum.sh')
         }catch{
-            Write-Host "[-]Can't Download LinEnum"
+            Write-Host "[-] Can't Download LinEnum" -ForegroundColor Red
+            Write-Output "[-] $($_.Exception.Message)"
             return
         }
     }
-    #Import ComputerName, Username, Passwords from CSV
-    $computers = import-csv $Csv
-    foreach ($computer in $computers){
-        $session = $null
-        $secpasswd = ConvertTo-SecureString $computer.Password -AsPlainText -Force
-        $creds = New-Object System.Management.Automation.PSCredential ($computer.Username, $secpasswd)
-        try{
-            $session = New-SSHSession -ComputerName $computer.ComputerName -Credential $creds -Force
-        }catch{
-            Write-Host "[-] Error connecting to $($computer.ComputerName)" -ForegroundColor Red
-        }
-        if($session){
-            $output = (Invoke-SSHCommand -SSHSession $session -Command "$LinEnum | /bin/bash")
-            Add-Content -Path "$((Get-Location).path)\linux\$($computer.ComputerName)" -Value $output.output
-            Remove-SSHSession -SSHSession $session
-        }else{
-            Add-Content -Path "$((Get-Location).path)\linux\$($computer.ComputerName)" -Value '[-] Error connecting to host'
-        }
+    #One thread for every computer :D
+    $ScriptParams = @{
+        'Script' = $Script
+        'Location' = $Location
     }
+    Get-RSJob | Remove-RSJob | where {$_.state -like 'Completed'}
+    $Computers | start-rsjob -Name {$_.computername} -ArgumentList $ScriptParams -ModulesToImport 'Posh-SSH' -ScriptBlock {
+            param($Inputargs)
+            $Script = $Inputargs.Script
+            $Location = $Inputargs.Location
+            $secpasswd = ConvertTo-SecureString $_.password -AsPlainText -Force
+            $creds = New-Object System.Management.Automation.PSCredential ($_.username, $secpasswd)
+            try{
+                $session = New-SSHSession -ComputerName $_.ComputerName -Credential $creds -Force -WarningAction SilentlyContinue
+            }catch{
+                Add-Content -Path "$Location\$($_.ComputerName)" -Value '[-] Error connecting to host'
+            }
+            if($session){
+                $output = (Invoke-SSHCommand -SSHSession $session -Command "$script | /bin/bash")
+                Add-Content -Path "$Location\$($_.ComputerName)" -Value $output.output
+                Remove-SSHSession -SSHSession $session | Out-Null
+            }
+        } | Wait-RSJob -ShowProgress
+        $errors=Get-RSJob | where {$_.HasErrors -eq $true}
+        if($errors){
+            Write-Host "[-] Failed connecting to following hosts" -ForegroundColor Red
+            Write-Output $errors
+        }
 }
-#Invoke-Linux
+Invoke-Linux
