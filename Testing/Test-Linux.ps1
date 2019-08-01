@@ -53,7 +53,7 @@ function Invoke-Linux{
         'Location' = $OutputFolder
     }
     #One thread for every computer :D
-    Get-RSJob | Remove-RSJob | where {$_.state -like 'Completed'}
+    Get-RSJob | where {$_.state -like 'Completed'} | Remove-RSJob 
     $Computers | start-rsjob -Name {$_.computername} -ArgumentList $ScriptParams -ModulesToImport 'Posh-SSH' -ScriptBlock {
             param($Inputargs)
             $Script = $Inputargs.Script
