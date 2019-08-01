@@ -10,7 +10,7 @@ https://www.tenable.com/products/nessus
 
 # POC'S
 ### Test-Windows.ps1
-	Invoke-Windows		-  Runs multiple scripts to check host security
+	Invoke-WindowsWMI	-  Run PowerShell script to on multiple hosts simultaneously with WMI
 
 ### Test-Domain.ps1
 	Invoke-Domain		-  Runs simple checks on the domain
