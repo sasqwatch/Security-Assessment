@@ -21,7 +21,7 @@ function Invoke-Linux{
         Write-Host "[-] Could not import computers" -ForegroundColor Red
         return
     }
-    #import dependencies
+    #Import dependencies
     try{
         Import-Module PoshRSJob -ErrorAction Stop
         Import-Module Posh-SSH -ErrorAction Stop
@@ -47,11 +47,12 @@ function Invoke-Linux{
             return
         }
     }
-    #One thread for every computer :D
+    #Params
     $ScriptParams = @{
         'Script' = $Script
-        'Location' = $Location
+        'Location' = $OutputFolder
     }
+    #One thread for every computer :D
     Get-RSJob | Remove-RSJob | where {$_.state -like 'Completed'}
     $Computers | start-rsjob -Name {$_.computername} -ArgumentList $ScriptParams -ModulesToImport 'Posh-SSH' -ScriptBlock {
             param($Inputargs)
