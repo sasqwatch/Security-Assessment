@@ -1,11 +1,14 @@
 #Multi Threading Coming Soon
+#linux.csv
+    #ComputerName Username Password
+    #------------ -------- --------
+    #192.168.1.40 cube     cube
 function Invoke-Linux {
     param (
         [string]$Csv = '.\linux.csv',
         [string]$LinEnumPath
     )
     #Generates LinEnum reports for multiple hosts
-    #install Posh-SSH module and PoshRSJob
     #Install-Module -Name Posh-SSH -Force
 
     #Create folder
@@ -30,18 +33,23 @@ function Invoke-Linux {
         }
     }
     #Import ComputerName, Username, Passwords from CSV
-    #PS C:\Users\cube\Desktop> import-csv .\linux.csv
-    #ComputerName Username Password
-    #------------ -------- --------
-    #192.168.1.40 cube     cube
     $computers = import-csv $Csv
     foreach ($computer in $computers){
+        $session = $null
         $secpasswd = ConvertTo-SecureString $computer.Password -AsPlainText -Force
         $creds = New-Object System.Management.Automation.PSCredential ($computer.Username, $secpasswd)
-        $session = New-SSHSession -ComputerName $computer.ComputerName -Credential $creds -Force
-        $output = (Invoke-SSHCommand -SSHSession $session -Command "$LinEnum | /bin/bash")
-        Add-Content -Path "$((Get-Location).path)\linux\$($computer.ComputerName)" -Value $output.output
-        Remove-SSHSession -SSHSession $session
+        try{
+            $session = New-SSHSession -ComputerName $computer.ComputerName -Credential $creds -Force
+        }catch{
+            Write-Host "[-] Error connecting to $($computer.ComputerName)" -ForegroundColor Red
+        }
+        if($session){
+            $output = (Invoke-SSHCommand -SSHSession $session -Command "$LinEnum | /bin/bash")
+            Add-Content -Path "$((Get-Location).path)\linux\$($computer.ComputerName)" -Value $output.output
+            Remove-SSHSession -SSHSession $session
+        }else{
+            Add-Content -Path "$((Get-Location).path)\linux\$($computer.ComputerName)" -Value '[-] Error connecting to host'
+        }
     }
 }
 #Invoke-Linux
