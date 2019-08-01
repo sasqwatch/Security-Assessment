@@ -11,9 +11,7 @@ function Invoke-Linux{
         [Parameter(Position=0,ValueFromPipeline=$True)]
         $Computers = '.\linux.csv',
         [ValidateScript({Test-Path -Path $_ })]
-        [string]$ScriptPath,
-        [ValidateRange(1,100)] 
-        [Int]$Threads = 10
+        [string]$ScriptPath
     )
     #Import ComputerName, Username, Passwords from CSV
     if($Computers.GetType().name -like 'String'){
