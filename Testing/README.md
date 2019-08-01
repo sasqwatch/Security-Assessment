@@ -8,7 +8,7 @@ https://github.com/BloodHoundAD/BloodHound/
 
 # POC'S
 ### Test-Windows.ps1
-	Invoke-Windows	-  Runs multiple scripts to check host secruity
+	Invoke-Windows		-  Runs multiple scripts to check host secruity
 
 ### Test-Domain.ps1
 	Invoke-Domain		-  Runs simple checks on the domain
