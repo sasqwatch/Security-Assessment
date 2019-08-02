@@ -2,7 +2,13 @@
 ### Test-Windows.ps1
 	Invoke-WindowsWMI	-  Run PowerShell script on multiple hosts simultaneously with WMI
 	Invoke-WindowsPS	-  Run PowerShell script on multiple hosts simultaneously with PSRemote
-  
+
+### Invoke-Stager.ps1
+	Invoke-Stager		-  Example how to use -ScriptPath with Test-Windows.ps1 functions
+	
+### Invoke-WinEnum.ps1
+	Invoke-WinEnum		-  Host security (to be continued)
+	
 ### Test-Linux.ps1
 	Invoke-Linux		-  Run Bash script on multiple hosts simultaneously with Posh-SSH and PoshRSJob
 
