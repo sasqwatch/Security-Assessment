@@ -17,7 +17,7 @@ function Invoke-Domain{
     if(!$Domain){
         $Domain = $current_domain.Name
     }
-    Start-Transcript -Path "$(Get-Location)\$Domain.txt" -NoClobber
+    Start-Transcript -Path "$(Get-Location)\$Domain.txt"
     Write-Output "[*] Domain = $Domain"
 
     if(!$DomainController){

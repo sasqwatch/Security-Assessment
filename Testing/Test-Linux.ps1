@@ -14,12 +14,8 @@ function Invoke-Linux{
         [string]$ScriptPath
     )
     #Import ComputerName, Username, Passwords from CSV
-    if($Computers.GetType().name -like 'String'){
-        $Computers = import-csv $Computers
-    }
-    if(-not($Computers)){
-        Write-Host "[-] Could not import computers" -ForegroundColor Red
-        return
+    if(Test-Path $Computers){
+        $Computers = import-csv $Computers -ErrorAction Stop
     }
     #Import dependencies
     try{
