@@ -33,8 +33,8 @@ function Invoke-WindowsWMI{
     #Make sure Invoke-WMIExec is imported
     $wmi=(Get-ChildItem function: | where {$_.name -like 'Invoke-WMIExec'})
     if(-not($wmi)){
-        Write-Host "Please import WmiExec.ps1 manually"
-        Write-Host ". .\WmiExec.ps1"
+        Write-Output "Please import WmiExec.ps1 manually"
+        Write-Output ". .\WmiExec.ps1"
         return
     }
     #Create output folder
@@ -64,7 +64,7 @@ function Invoke-WindowsWMI{
     } | Wait-RSJob -ShowProgress
     $errors=Get-RSJob | where {$_.HasErrors -eq $true}
     if($errors){
-        Write-Host "[-] Failed connecting to following hosts" -ForegroundColor Red
+        Write-Output "[-] Failed connecting to following hosts"
         Write-Output $errors
     }
 }
@@ -150,7 +150,7 @@ function Invoke-WindowsPS{
     } | Wait-RSJob -ShowProgress
     $errors = Get-RSJob | where {$_.HasErrors -eq $true}
     if($errors){
-        Write-Host "[-] Failed on following hosts" -ForegroundColor Red
+        Write-Output "[-] Failed on following hosts"
         Write-Output $errors
     }
 }

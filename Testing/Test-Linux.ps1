@@ -38,7 +38,7 @@ function Invoke-Linux{
         try{
             $Script = (new-object net.webclient).downloadstring('https://raw.githubusercontent.com/rebootuser/LinEnum/master/LinEnum.sh')
         }catch{
-            Write-Host "[-] Can't Download LinEnum" -ForegroundColor Red
+            Write-Output "[-] Can't Download LinEnum"
             Write-Output "[-] $($_.Exception.Message)"
             return
         }
@@ -69,7 +69,7 @@ function Invoke-Linux{
         } | Wait-RSJob -ShowProgress
         $errors=Get-RSJob | where {$_.HasErrors -eq $true}
         if($errors){
-            Write-Host "[-] Failed connecting to following hosts" -ForegroundColor Red
+            Write-Output "[-] Failed connecting to following hosts"
             Write-Output $errors
         }
 }

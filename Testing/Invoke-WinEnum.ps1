@@ -4,58 +4,58 @@ function Invoke-WinEnum{
     Write-Output "[*] UserDomain $env:USERDOMAIN"
 
     #https://powersploit.readthedocs.io/en/latest/Privesc/Get-RegistryAutoLogon/
-    Write-Host "`n[*] Checking AutoLogon"
+    Write-Output "`n[*] Checking AutoLogon"
     try{
         $autologon=Get-RegistryAutoLogon
         if($autologon){
-            Write-Host "[-] AutoLogon Credentials Found" -ForegroundColor Red
+            Write-Output "[-] AutoLogon Credentials Found"
             $autologon
         }else{
-            Write-Host "[+] No AutoLogon Credentials Found" -ForegroundColor Green
+            Write-Output "[+] No AutoLogon Credentials Found"
         }
     }catch{
-        Write-Host "[-] AutoLogon Failed" -ForegroundColor Red
+        Write-Output "[-] AutoLogon Failed"
     }
 
     #https://powersploit.readthedocs.io/en/latest/Privesc/Get-CachedGPPPassword/
-    Write-Host "`n[*] Checking CachedGPPPassword"
+    Write-Output "`n[*] Checking CachedGPPPassword"
     try{
         $CachedGPPPassword=Get-CachedGPPPassword
         if($CachedGPPPassword){
-            Write-Host "[-] CachedGPPPassword Found" -ForegroundColor Red
+            Write-Output "[-] CachedGPPPassword Found"
             $CachedGPPPassword
         }else{
-            Write-Host "[+] No CachedGPPPassword Found" -ForegroundColor Green
+            Write-Output "[+] No CachedGPPPassword Found"
         }
     }catch{
-        Write-Host "[-] CachedGPPPassword Failed" -ForegroundColor Red
+        Write-Output "[-] CachedGPPPassword Failed"
     }
 
     #https://powersploit.readthedocs.io/en/latest/Privesc/Get-UnattendedInstallFile/
-    Write-Host "`n[*] Checking UnattendedInstallFiles"
+    Write-Output "`n[*] Checking UnattendedInstallFiles"
     try{
         $UnattendedInstallFile=Get-UnattendedInstallFile
         if($UnattendedInstallFile){
-            Write-Host "[-] UnattendedInstallFiles Found" -ForegroundColor Red
+            Write-Output "[-] UnattendedInstallFiles Found"
             $UnattendedInstallFile
         }else{
-            Write-Host "[+] No UnattendedInstallFiles Found" -ForegroundColor Green
+            Write-Output "[+] No UnattendedInstallFiles Found"
         }
     }catch{
-        Write-Host "[-] UnattendedInstallFiles Failed" -ForegroundColor Red
+        Write-Output "[-] UnattendedInstallFiles Failed"
     }
 
     #https://powersploit.readthedocs.io/en/latest/Privesc/Get-UnquotedService/
-    Write-Host "`n[*] Checking Unquoted Services"
+    Write-Output "`n[*] Checking Unquoted Services"
     try{
         $UnquotedService=Get-UnquotedService
         if($UnquotedService){
-            Write-Host "[-] Unquoted Services Found" -ForegroundColor Red
+            Write-Output "[-] Unquoted Services Found"
             $UnquotedService
         }else{
-            Write-Host "[+] No Unquoted Services Found" -ForegroundColor Green
+            Write-Output "[+] No Unquoted Services Found"
         }
     }catch{
-        Write-Host "[-] Unquoted Services Failed" -ForegroundColor Red
+        Write-Output "[-] Unquoted Services Failed"
     }
 }
