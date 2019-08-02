@@ -191,4 +191,4 @@ function Invoke-WinEnum{
         Write-Output "[-] Checking for Local Shares Failed"
     }
 }
-Invoke-WinEnum
+#Invoke-WinEnum
