@@ -1,17 +1,19 @@
+Scripts written to aid automated scanning during whitebox security/vuln assessments
+
 # Poc's
 ### Test-Windows.ps1
 	Invoke-WindowsWMI	-  Run PowerShell script on multiple hosts simultaneously with WMI
 	Invoke-WindowsPS	-  Run PowerShell script on multiple hosts simultaneously with PSRemote
 
 ### Invoke-Stager.ps1
-	Invoke-Stager		-  Example how to use -ScriptPath with Test-Windows.ps1 functions
+	Invoke-Stager		-  Example how to use -ScriptPath or -URL with Test-Windows.ps1 functions
 	
 ### Invoke-WinEnum.ps1
 	Invoke-WinEnum		-  Check Windows host security (to be continued. thx to Harmj0y and A-mIn3)
 	Autologon, Cached GPP Password, Unattended Install Files, Unquoted Services Paths,
-	AlwaysInstallElevated, Firewall Status, Third Party Firewall Products, 
-	AntiVirus Product and Status, AntiSpyware Product and Status, UAC Configuration,
-	Local SMB Shares and Permissions, Non Standard Scheduled Tasks, Potential Service DDL Hijacking
+	AlwaysInstallElevated, Firewall Product and Status, AntiVirus Product and Status, 
+	AntiSpyware Product and Status, UAC Configuration, Local SMB Shares and Permissions, 
+	Non Standard Scheduled Tasks, Potential Service DDL Hijacking
 	
 ### Test-Linux.ps1
 	Invoke-Linux		-  Run Bash script on multiple hosts simultaneously with Posh-SSH and PoshRSJob
