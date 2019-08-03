@@ -1,3 +1,62 @@
+function Get-BinaryWritableServices {
+    <#
+    Modified https://github.com/A-mIn3/WINspect
+    .SYNOPSIS
+    Gets services binaries with permission   
+    Services to be ignored are those in system32 subtree and 
+    ACL's for System,Administrator or TrustedInstaller
+    .DESCRIPTION
+    This function checks services that have writable binaries and returns an array 
+    containing service objects.
+    #>
+    $abusable=@(
+        'Modify',
+        'TakeOwnership',
+        'ChangePermissions',
+        'Write',
+        'Delete',
+        'FullControl'
+    )
+    $writableServices = New-Object System.Collections.ArrayList
+    $services = Get-WmiObject -Class Win32_Service| where {$_.pathname -ne $null -and $_.pathname -notmatch ".*system32.*"}
+    try{
+        $services | foreach {
+            $service = $_
+            $pathname = $($service.pathname.subString(0, $service.pathname.toLower().IndexOf(".exe")+4)).trim('"')
+            $binaryAcl = Get-Acl $pathname  -ErrorAction SilentlyContinue  
+            $acls = $binaryAcl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]) | where {$_.AccessControlType -match 'allow'}
+            foreach($acl in $acls){
+                try{
+                    $trustee = $acl.IdentityReference.Translate([System.Security.Principal.NTAccount])
+                }catch{
+                    #do nothing
+                }
+                if(($trustee -notmatch 'System') -and ($trustee -notmatch 'Administrator') -and ($trustee -notmatch 'TrustedInstaller')){
+                    $permissions = $acl.FileSystemRights.ToString().split(',').trim()
+                    foreach($permission in $permissions){
+                        if(($abusable -contains $permission)){
+                            $data = New-Object  PSObject -Property @{
+                                "Service"     = $service.name
+                                "Path"        = $pathname
+                                "Trustee"     = $trustee
+                                "Permissions" = $permissions
+                            }
+                            $writableServices.add($data) | Out-Null
+                            return
+                        }
+                    }
+                }
+            } 
+        }
+        if($writableServices.Count -gt 0){
+            $writableServices  |Format-List
+        }else{
+            Write-Output "[+] No Weird ACL on Service Binary Found"
+        }
+    }catch{
+        Write-Output "[-] $($_.Exception.Message)"
+    }
+}
 function Get-LocalShares {
     <#
     Modified https://github.com/A-mIn3/WINspect/blob/master/WINspect.ps1
@@ -783,7 +842,7 @@ function Invoke-WinEnum{
     }
 
     #
-    Write-Output "`n[*] Checking Non Standard ScheduledTasks"
+    Write-Output "`n[*] Checking for ScheduledTasks Not Located in System32"
     try{
         Get-ScheduledTasks
     }catch{
@@ -796,6 +855,14 @@ function Invoke-WinEnum{
         Get-HostedServices
     }catch{
         Write-Output "[-] Checking for Services for DLLs Not Located in System32 Failed"
+    }
+
+    #
+    Write-Output "`n[*] Checking ACL's on Services Not Located in System32"
+    try{
+        Get-BinaryWritableServices
+    }catch{
+        "[-] Checking ACL's on Services Not Located in System32 Failed"
     }
 }
 #Invoke-WinEnum
