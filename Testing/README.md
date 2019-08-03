@@ -21,7 +21,7 @@ Scripts written to aid automated scanning during whitebox security/vuln assessme
 ### bloodhoundanalytics.py
 	Gather Active Directory statistics from BloodHound data
 ### Invoke-Chaps.ps1
-	Invoke-Chaps		-  Secure baseline checks (Modifed version of chaps.ps1 originally written by cutaway)
+	Invoke-Chaps		-  Secure baseline checks (Modified version of chaps.ps1 originally written by cutaway)
 
 # Software
 
