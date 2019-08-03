@@ -7,7 +7,11 @@
 	Invoke-Stager		-  Example how to use -ScriptPath with Test-Windows.ps1 functions
 	
 ### Invoke-WinEnum.ps1
-	Invoke-WinEnum		-  Host security (to be continued)
+	Invoke-WinEnum		-  Check Windows host security (to be continued. thx to Harmj0y and A-mIn3)
+	Autologon, Cached GPP Password, Unattended Install Files, Unquoted Services Paths,
+	AlwaysInstallElevated, Firewall Status, Third Party Firewall Products, 
+	AntiVirus Product and Status, AntiSpyware Product and Status, UAC Configuration,
+	Local SMB Shares and Permissions, Non Standard Scheduled Tasks, Potential Service DDL Hijacking
 	
 ### Test-Linux.ps1
 	Invoke-Linux		-  Run Bash script on multiple hosts simultaneously with Posh-SSH and PoshRSJob
@@ -17,7 +21,6 @@
 
 ### bloodhoundanalytics.py
 	Gather Active Directory statistics from BloodHound data
-
 
 # Software
 
