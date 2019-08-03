@@ -33,6 +33,8 @@ https://github.com/BloodHoundAD/BloodHound/
 
 https://www.tenable.com/products/nessus
 
+https://github.com/GhostManager/Ghostwriter
+
 # Nessus Audit Files
 https://github.com/nsacyber/Windows-Secure-Host-Baseline/tree/master/Windows/Compliance
 
