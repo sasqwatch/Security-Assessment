@@ -1,3 +1,113 @@
+function Get-AutoRuns {
+    <#
+    Modified https://github.com/A-mIn3/WINspect
+    .SYNOPSIS
+    Looks for autoruns specified in different places in the registry.
+    .DESCRIPTION
+    This function inspects common registry keys used for autoruns.
+    It examines the properties of these keys and report any found executables along with their pathnames.
+    #>
+    $list = New-Object System.Collections.ArrayList
+    $RegistryKeys = @( 
+        "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\BootExecute",
+        "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\Notify",
+        "HKLM\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\Userinit",
+        "HKCU\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\\Shell",
+        "HKLM\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\\Shell",
+        "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\ShellServiceObjectDelayLoad",
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run\",
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce\",
+        "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run\",
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnceEx\",
+        "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce\",
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run\",
+        "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run\",
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunServices\",
+        "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunServices",
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunServicesOnce",
+        "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunServicesOnce",
+        "HKCU\Software\Microsoft\Windows NT\CurrentVersion\Windows\load",
+        "HKLM\Software\Microsoft\Windows NT\CurrentVersion\Windows",
+        "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\SharedTaskScheduler",
+        "HKLM\Software\Microsoft\Windows NT\CurrentVersion\Windows\AppInit_DLLs"   # DLLs specified in this entry can hijack any process that uses user32.dll 
+        # not sure if it is all we need to check!
+    )
+    try{
+        $RegistryKeys | foreach {
+            $key = $_
+            if(Test-Path -Path $key){
+                [array]$properties = get-item $key | Select-Object -ExpandProperty Property
+                if($properties.Count -gt 0){
+                    foreach($exe in $properties) {
+                        $executable = New-Object  PSObject -Property @{
+                            "key"        = $key
+                            "Executable" = $exe
+                            "Path"       = $($($(Get-ItemProperty $key).$exe)).replace('"','')
+                        }
+                        $list.add($executable) | Out-Null #| Format-List  @{Expression={$_.Name};Label="Executable"},@{Expression={$_.Value};Label="Path"}
+                    }
+                }
+            }
+        }
+        if($list.Count -eq 0){
+            Write-Output "[+] Found no autoruns ."
+        }else{
+            Write-Output $list | Format-List
+        }
+    }catch{
+        Write-Output "[-] $($_.Exception.Message)"
+    }
+}
+function Get-DLLHijackingAbility { 
+    <#
+    Modified https://github.com/A-mIn3/WINspect
+    .SYNOPSIS
+    Checks DLL Search mode and inspects permissions for directories in system %PATH%
+    .DESCRIPTION
+    This functions tries to identify if DLL Safe Search is used and inspects 
+    write access to directories in the path environment variable .
+    #>
+    $list = New-Object System.Collections.ArrayList
+    Write-Output "[*] Checking for Safe DLL Search mode" 
+    $value = Get-ItemProperty 'HKLM:\SYSTEM\ControlSet001\Control\Session Manager\' -Name SafeDllSearchMode -ErrorAction SilentlyContinue
+    if($value -and ($value.SafeDllSearchMode -eq 0)){
+        "[+] DLL Safe Search is disabled !"      
+    }else{
+        "[+] DLL Safe Search is enabled !"        
+    }
+    $systemPath = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment' -Name PATH).PATH
+    $systemPath.split(";") | foreach {
+        $directory = $_
+        if(Test-Path $directory){
+            $acls = Get-Acl $($directory.trim('"'))
+        }
+        foreach($acl in $acls.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])){
+            try{
+                $trustee = $acl.IdentityReference.Translate([System.Security.Principal.NTAccount])
+            }catch{
+                return
+            }
+            if(($trustee -notmatch 'System') -and ($trustee -notmatch 'Administrator') -and ($trustee -notmatch 'TrustedInstaller')){
+                # Here we are checking directory write access in UNIX sense (write/delete/modify permissions)
+                # We use a combination of flags 
+                $accessMask = $acl.FileSystemRights.value__
+                if($accessMask -band 0xd0046){
+                    $item = New-Object psobject -Property @{
+                        "Directory"   = $directory        
+                        "Writable"    = $True
+                        "Trustee"     = $trustee
+                    }
+                    $list.add($item) | Out-Null
+                }
+            }
+        }
+    }
+    if($list.Count -eq 0){
+        Write-Output "[+] Non Found"
+    }else{
+        Write-Output $list | Format-List
+    }
+}
 function Get-BinaryWritableServices {
     <#
     Modified https://github.com/A-mIn3/WINspect
@@ -18,7 +128,7 @@ function Get-BinaryWritableServices {
         'FullControl'
     )
     $writableServices = New-Object System.Collections.ArrayList
-    $services = Get-WmiObject -Class Win32_Service| where {$_.pathname -ne $null -and $_.pathname -notmatch ".*system32.*"}
+    $services = Get-WmiObject -Class Win32_Service| where {$_.pathname -ne $null}
     try{
         $services | foreach {
             $service = $_
@@ -703,45 +813,6 @@ function Get-ScheduledTasks {
         Write-Output $tasks | Format-List taskCommand,SecurityContext
     }
 }
-function Get-HostedServices {
-    <#
-    .SYNOPSIS
-    Checks hosted services running DLLs not located in the system32 subtree.
-    .DESCRIPTION
-    This functions tries to identify whether there are any configured hosted 
-    services based on DLLs not in system32.  
-    .RETURNS
-    When invoked without the $display switch, returns 
-    PSobject array containing the service name, service groupname 
-    and the service DLL path. 
-    #>
-    $srvcs = New-Object System.Collections.ArrayList
-    try{   
-        $services = Get-WmiObject -Class Win32_service | where { $_.pathname -match "svchost\.exe" -and $(Test-Path $("HKLM:\SYSTEM\CurrentControlSet\Services\"+$_.Name+"\Parameters")) -eq $true}
-        if($services){
-            foreach($service in $services){
-                $serviceName  = $service.Name 
-                $serviceGroup = $service.pathname.split(" ")[2]
-                $serviceDLLPath=$(Get-ItemProperty $("HKLM:\SYSTEM\CurrentControlSet\Services\"+$service.Name+"\Parameters") -Name ServiceDLL).ServiceDLL
-                if(($serviceDLLPath) -and ($serviceDLLPath -notmatch ".*system32.*")){ 
-                    $srvc = New-Object psobject -Property @{
-                        serviceName    = $serviceName
-                        serviceGroup   = $serviceGroup
-                        serviceDLLPath = $serviceDLLPath
-                    }
-                    $srvcs.add($srvc)  | Out-Null
-                }
-            }
-        }
-    }catch{
-       Write-Output "[-] $($_.Exception.Message)"        
-    }
-    if($srvcs.count -eq 0){
-        Write-Output "[+] Found no user hosted services"
-    }else{
-        Write-Output $srvcs | Format-List serviceName,serviceGroup,serviceDLLPath
-    }
-}
 function Invoke-WinEnum{
     Write-Output "[*] ComputerName $env:COMPUTERNAME"
     Write-Output "[*] User $env:USERNAME"
@@ -850,19 +921,27 @@ function Invoke-WinEnum{
     }
 
     #
-    Write-Output "`n[*] Checking Services for DLLs Not Located in System32"
+    Write-Output "`n[*] Checking ACL's on Folders in System Path"
     try{
-        Get-HostedServices
+        Get-DLLHijackingAbility
     }catch{
-        Write-Output "[-] Checking for Services for DLLs Not Located in System32 Failed"
+        Write-Output "[-] Checking ACL's on Folders in System Path Failed"
     }
 
     #
-    Write-Output "`n[*] Checking ACL's on Services Not Located in System32"
+    Write-Output "`n[*] Checking ACL's on Services Binaries"
     try{
         Get-BinaryWritableServices
     }catch{
-        "[-] Checking ACL's on Services Not Located in System32 Failed"
+        "[-] Checking ACL's on Services Binaries Failed"
+    }
+
+    #
+    Write-Output "`n[*] Checking AutoRun"
+    try{
+        Get-AutoRuns
+    }catch{
+        "[-] Checking AutoRun Failed"
     }
 }
 #Invoke-WinEnum
