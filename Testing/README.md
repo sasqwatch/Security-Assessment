@@ -33,3 +33,7 @@ https://github.com/CISOfy/lynis
 https://github.com/BloodHoundAD/BloodHound/
 
 https://www.tenable.com/products/nessus
+
+# Nessus Audit Files
+https://github.com/nsacyber/Windows-Secure-Host-Baseline/tree/master/Windows/Compliance
+https://github.com/nsacyber/Windows-Secure-Host-Baseline/tree/master/Windows%20Firewall/Compliance
