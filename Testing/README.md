@@ -13,7 +13,7 @@ Scripts written to aid automated scanning during whitebox security/vuln assessme
 	Autologon, Cached GPP Password, Unattended Install Files, Unquoted Services Paths,
 	AlwaysInstallElevated, Firewall Product and Status, AntiVirus Product and Status, 
 	AntiSpyware Product and Status, UAC Configuration, Local SMB Shares and Permissions, 
-	Non Standard Scheduled Tasks, Potential Service DDL Hijacking
+	Non Standard Scheduled Tasks, Potential Service DDL Hijacking, ACL's on Service Binaries
 ### Test-Domain.ps1
 	Invoke-Domain		-  Runs simple checks on the domain
 	Domain and Forest Trust, GPO Autologon and CPassword in Sysvol, ADIDNS Wildcard record,
