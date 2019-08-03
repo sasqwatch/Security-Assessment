@@ -79,28 +79,29 @@ function Get-DLLHijackingAbility {
     $systemPath.split(";") | foreach {
         $directory = $_
         if(Test-Path $directory){
-            $acls = Get-Acl $($directory.trim('"'))
-        }
-        foreach($acl in $acls.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])){
-            try{
-                $trustee = $acl.IdentityReference.Translate([System.Security.Principal.NTAccount])
-            }catch{
-                return
-            }
-            if(($trustee -notmatch 'System') -and ($trustee -notmatch 'Administrator') -and ($trustee -notmatch 'TrustedInstaller')){
-                # Here we are checking directory write access in UNIX sense (write/delete/modify permissions)
-                # We use a combination of flags 
-                $accessMask = $acl.FileSystemRights.value__
-                if($accessMask -band 0xd0046){
-                    $item = New-Object psobject -Property @{
-                        "Directory"   = $directory        
-                        "Writable"    = $True
-                        "Trustee"     = $trustee
+            $acls = (Get-Acl $($directory.trim('"'))).GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])  | where {$_.AccessControlType -match 'allow'}
+            foreach($acl in $acls){
+                try{
+                    $trustee = $acl.IdentityReference.Translate([System.Security.Principal.NTAccount])
+                }catch{
+                    return
+                }
+                if(($trustee -notmatch 'System') -and ($trustee -notmatch 'Administrator') -and ($trustee -notmatch 'TrustedInstaller')){
+                    # Here we are checking directory write access in UNIX sense (write/delete/modify permissions)
+                    # We use a combination of flags 
+                    $accessMask = $acl.FileSystemRights.value__
+                    if($accessMask -band 0xd0046){
+                        $item = New-Object psobject -Property @{
+                            "Directory"   = $directory        
+                            "Writable"    = $True
+                            "Trustee"     = $trustee
+                        }
+                        $list.add($item) | Out-Null
+			return
                     }
-                    $list.add($item) | Out-Null
                 }
             }
-        }
+	}
     }
     if($list.Count -eq 0){
         Write-Output "[+] Non Found"
@@ -139,7 +140,7 @@ function Get-BinaryWritableServices {
                 try{
                     $trustee = $acl.IdentityReference.Translate([System.Security.Principal.NTAccount])
                 }catch{
-                    #do nothing
+                    return
                 }
                 if(($trustee -notmatch 'System') -and ($trustee -notmatch 'Administrator') -and ($trustee -notmatch 'TrustedInstaller')){
                     $permissions = $acl.FileSystemRights.ToString().split(',').trim()
