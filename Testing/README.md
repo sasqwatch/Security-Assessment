@@ -24,6 +24,9 @@ Scripts written to aid automated scanning during whitebox security/vuln assessme
 ### bloodhoundanalytics.py
 	Gather Active Directory statistics from BloodHound data
 
+### Invoke-Chaps.ps1
+	Modifed version of chaps.ps1 originally written by cutaway
+
 # Software
 
 https://docs.microsoft.com/en-us/windows/security/threat-protection/security-compliance-toolkit-10
