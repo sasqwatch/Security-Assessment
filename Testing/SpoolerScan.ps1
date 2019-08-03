@@ -1,4 +1,20 @@
-$sourceSpooler = @"
+Function Get-SpoolStatus {
+	<#
+	.OUTPUT
+	PS > Get-SpoolStatus -ComputerNames localhost
+	ComputerName Status
+	------------ ------
+	localhost     False
+	dc            True
+	#>
+	Param(
+        [parameter(Mandatory=$true,ValueFromPipeline=$true)]
+        $ComputerNames
+	)
+	if((Test-Path $ComputerNames)){
+		$ComputerNames = Get-Content $ComputerNames
+	}
+	$sourceSpooler = @"
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -713,11 +729,16 @@ namespace PingCastle.ExtractedCode
     }
 
 }
-
 "@
-
-Add-Type -TypeDefinition $sourceSpooler
-
-$rprn = New-Object PingCastle.ExtractedCode.rprn
-
-$rprn.CheckIfTheSpoolerIsActive("192.168.0.20")
+	Add-Type -TypeDefinition $sourceSpooler
+	$rprn = New-Object PingCastle.ExtractedCode.rprn
+	$list = New-Object System.Collections.ArrayList
+	$ComputerNames | foreach {
+		$data = New-Object  PSObject -Property @{
+			"ComputerName" = $_
+			"Status"       = $rprn.CheckIfTheSpoolerIsActive($_)
+		}
+		$list.add($data) | Out-Null
+	}
+	return $list
+}
