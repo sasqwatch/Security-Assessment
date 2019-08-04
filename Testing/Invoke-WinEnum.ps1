@@ -1,3 +1,75 @@
+function Get-SysInfo {
+    <#
+    https://github.com/threatexpress/red-team-scripts/blob/master/HostEnum.ps1
+    .SYNOPSIS
+    Gets basic system information from the host
+    #>
+    $os_info = gwmi Win32_OperatingSystem
+    $date = Get-Date
+    $IsHighIntegrity = [bool]([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
+    
+    $SysInfoHash = @{            
+        HOSTNAME                = $ENV:COMPUTERNAME                         
+        IPADDRESSES             = (@([System.Net.Dns]::GetHostAddresses($ENV:HOSTNAME)) | %{$_.IPAddressToString}) -join ", "        
+        OS                      = $os_info.caption + ' ' + $os_info.CSDVersion     
+        ARCHITECTURE            = $os_info.OSArchitecture   
+        "DATE(UTC)"             = $date.ToUniversalTime()| Get-Date -uformat  "%Y%m%d%H%M%S"
+        "DATE(LOCAL)"           = $date | Get-Date -uformat  "%Y%m%d%H%M%S%Z"
+        INSTALLDATE             = $os_info.InstallDate
+        USERNAME                = $ENV:USERNAME           
+        DOMAIN                  = (GWMI Win32_ComputerSystem).domain            
+        LOGONSERVER             = $ENV:LOGONSERVER          
+        PSVERSION               = $PSVersionTable.PSVersion.ToString()
+        PSCOMPATIBLEVERSIONS    = ($PSVersionTable.PSCompatibleVersions) -join ', '
+        PSSCRIPTBLOCKLOGGING    = If((Get-ItemProperty HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging -EA 0).EnableScriptBlockLogging -eq 1){"Enabled"} Else {"Disabled"}
+        PSTRANSCRIPTION         = If((Get-ItemProperty HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription -EA 0).EnableTranscripting -eq 1){"Enabled"} Else {"Disabled"}
+        PSTRANSCRIPTIONDIR      = (Get-ItemProperty HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription -EA 0).OutputDirectory
+        PSMODULELOGGING         = If((Get-ItemProperty HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ModuleLogging -EA 0).EnableModuleLogging -eq 1){"Enabled"} Else {"Disabled"}
+        LSASSPROTECTION         = If((Get-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\Lsa -EA 0).RunAsPPL -eq 1){"Enabled"} Else {"Disabled"}
+        LAPS                    = If((Get-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft Services\AdmPwd" -EA 0).AdmPwdEnabled -eq 1){"Enabled"} Else {"Disabled"}
+        UACLOCALACCOUNTTOKENFILTERPOLICY = If((Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System -EA 0).LocalAccountTokenFilterPolicy -eq 1){"Disabled (PTH likely w/ non-RID500 Local Admins)"} Else {"Enabled (Remote Administration restricted for non-RID500 Local Admins)"}
+        UACFILTERADMINISTRATORTOKEN = If((Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System -EA 0).FilterAdministratorToken -eq 1){"Enabled (RID500 protected)"} Else {"Disabled (PTH likely with RID500 Account)"}
+        HIGHINTEGRITY           = $IsHighIntegrity
+        DENYRDPCONNECTIONS      = [bool](Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server" -EA 0).FDenyTSConnections
+    }      
+    # PS feels the need to randomly re-order everything when converted to an object so let's presort
+    $SysInfoObject = New-Object -TypeName PSobject -Property $SysInfoHash 
+    return $SysInfoObject | Select-Object Hostname, OS, Architecture, "Date(UTC)", "Date(Local)", InstallDate, IPAddresses, Domain, Username, LogonServer, PSVersion, PSCompatibleVersions, PSScriptBlockLogging, PSTranscription, PSTranscriptionDir, PSModuleLogging, LSASSProtection, LAPS, UACLocalAccountTokenFilterPolicy, UACFilterAdministratorToken, HighIntegrity, DENYRDPCONNECTIONS
+}
+function Get-ActiveListeners {
+    <#
+    https://github.com/threatexpress/red-team-scripts/blob/master/HostEnum.ps1
+    .SYNOPSIS
+    Enumerates active TCP/UDP listeners.
+    #>
+    Write-Verbose "Enumerating active TCP/UDP listeners..."
+    $list = New-Object System.Collections.ArrayList
+    $IPProperties = [System.Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties()         
+    $TcpListeners = $IPProperties.GetActiveTCPListeners()
+    $UdpListeners = $IPProperties.GetActiveUDPListeners()
+            
+    ForEach($Connection in $TcpListeners) {            
+        if($Connection.address.AddressFamily -eq "InterNetwork" ) { $IPType = "IPv4" } else { $IPType = "IPv6" }                 
+        $object = New-Object -TypeName PSobject -Property @{          
+            "Protocol"      = "TCP"
+            "LocalAddress"  = $Connection.Address            
+            "ListeningPort" = $Connection.Port            
+            "IPVersion"     = $IPType
+        }
+        $list.add($object) | Out-Null
+    }
+    ForEach($Connection in $UdpListeners) {            
+        if($Connection.address.AddressFamily -eq "InterNetwork" ) { $IPType = "IPv4" } else { $IPType = "IPv6" }                 
+        $object = New-Object -TypeName PSobject -Property @{          
+            "Protocol"      = "UDP"
+            "LocalAddress"  = $Connection.Address            
+            "ListeningPort" = $Connection.Port            
+            "IPVersion"     = $IPType
+        }
+        $list.add($object) | Out-Null
+    }
+    return $list
+}
 function Get-AutoRuns {
     <#
     Modified https://github.com/A-mIn3/WINspect
@@ -40,27 +112,28 @@ function Get-AutoRuns {
                 if($properties.Count -gt 0){
                     foreach($exe in $properties) {
                         $executable = New-Object  PSObject -Property @{
-                            "key"        = $key
-                            "Executable" = $exe
-                            "Path"       = $($($(Get-ItemProperty $key).$exe)).replace('"','')
+                            key        = $key
+                            Executable = $exe
+                            Path       = $($($(Get-ItemProperty $key).$exe)).replace('"','')
                         }
-                        $list.add($executable) | Out-Null #| Format-List  @{Expression={$_.Name};Label="Executable"},@{Expression={$_.Value};Label="Path"}
+                        $list.add($executable) | Out-Null
                     }
                 }
             }
         }
         if($list.Count -eq 0){
-            Write-Output "[+] Found no autoruns ."
+            return "[+] Found no autoruns ."
         }else{
-            Write-Output $list | Format-List
+            return $list
         }
     }catch{
-        Write-Output "[-] $($_.Exception.Message)"
+        return "[-] $($_.Exception.Message)"
     }
 }
-function Get-DLLHijackingAbility { 
+function Get-WritableSystemPath { 
     <#
     Modified https://github.com/A-mIn3/WINspect
+    https://attack.mitre.org/techniques/T1038/
     .SYNOPSIS
     Checks DLL Search mode and inspects permissions for directories in system %PATH%
     .DESCRIPTION
@@ -71,9 +144,9 @@ function Get-DLLHijackingAbility {
     Write-Output "[*] Checking for Safe DLL Search mode" 
     $value = Get-ItemProperty 'HKLM:\SYSTEM\ControlSet001\Control\Session Manager\' -Name SafeDllSearchMode -ErrorAction SilentlyContinue
     if($value -and ($value.SafeDllSearchMode -eq 0)){
-        "[+] DLL Safe Search is disabled !"      
+        "[*] DLL Safe Search is disabled !"      
     }else{
-        "[+] DLL Safe Search is enabled !"        
+        "[*] DLL Safe Search is enabled !"        
     }
     $systemPath = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment' -Name PATH).PATH
     $systemPath.split(";") | foreach {
@@ -97,19 +170,19 @@ function Get-DLLHijackingAbility {
                             "Trustee"     = $trustee
                         }
                         $list.add($item) | Out-Null
-			return
+			            return
                     }
                 }
             }
-	}
+	    }
     }
     if($list.Count -eq 0){
-        Write-Output "[+] Non Found"
+        return "[+] Non Writeable System Path Found"
     }else{
-        Write-Output $list | Format-List
+        return $list
     }
 }
-function Get-BinaryWritableServices {
+function Get-WritableServicesBinary {
     <#
     Modified https://github.com/A-mIn3/WINspect
     .SYNOPSIS
@@ -128,44 +201,69 @@ function Get-BinaryWritableServices {
         'Delete',
         'FullControl'
     )
-    $writableServices = New-Object System.Collections.ArrayList
-    $services = Get-WmiObject -Class Win32_Service| where {$_.pathname -ne $null}
+    $list = New-Object System.Collections.ArrayList
+    $services = Get-WmiObject -Class Win32_Service| where {$_.pathname}
     try{
         $services | foreach {
             $service = $_
             $pathname = $($service.pathname.subString(0, $service.pathname.toLower().IndexOf(".exe")+4)).trim('"')
-            $binaryAcl = Get-Acl $pathname  -ErrorAction SilentlyContinue  
-            $acls = $binaryAcl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]) | where {$_.AccessControlType -match 'allow'}
-            foreach($acl in $acls){
-                try{
-                    $trustee = $acl.IdentityReference.Translate([System.Security.Principal.NTAccount])
-                }catch{
-                    return
-                }
-                if(($trustee -notmatch 'System') -and ($trustee -notmatch 'Administrator') -and ($trustee -notmatch 'TrustedInstaller')){
-                    $permissions = $acl.FileSystemRights.ToString().split(',').trim()
-                    foreach($permission in $permissions){
-                        if(($abusable -contains $permission)){
-                            $data = New-Object  PSObject -Property @{
-                                "Service"     = $service.name
-                                "Path"        = $pathname
-                                "Trustee"     = $trustee
-                                "Permissions" = $permissions
+            if(($pathname) -and (Test-Path $pathname)){
+                $acls = (Get-Acl $pathname).GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])  | where {$_.AccessControlType -match 'allow'}
+                foreach($acl in $acls){
+                    try{
+                        $trustee = $acl.IdentityReference.Translate([System.Security.Principal.NTAccount])
+                    }catch{
+                        return
+                    }
+                    if(($trustee -notmatch 'System') -and ($trustee -notmatch 'Administrator') -and ($trustee -notmatch 'TrustedInstaller')){
+                        $permissions = $acl.FileSystemRights.ToString().split(',').trim()
+                        foreach($permission in $permissions){
+                            if(($abusable -contains $permission)){
+                                $data = New-Object  PSObject -Property @{
+                                    Service     = $service.name
+                                    Path        = $pathname
+                                    Trustee     = $trustee
+                                    Permissions = $permissions
+                                }
+                                $list.add($data) | Out-Null
+                                return
                             }
-                            $writableServices.add($data) | Out-Null
-                            return
                         }
                     }
                 }
-            } 
+                #Dir acl
+                $dir = (Get-ChildItem $pathname).DirectoryName
+                $acls = (Get-Acl $dir).GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])  | where {$_.AccessControlType -match 'allow'}
+                foreach($acl in $acls){
+                    try{
+                        $trustee = $acl.IdentityReference.Translate([System.Security.Principal.NTAccount])
+                    }catch{
+                        return
+                    }
+                    if(($trustee -notmatch 'System') -and ($trustee -notmatch 'Administrator') -and ($trustee -notmatch 'TrustedInstaller')){
+                        # Here we are checking directory write access in UNIX sense (write/delete/modify permissions)
+                        # We use a combination of flags 
+                        $accessMask = $acl.FileSystemRights.value__
+                        if($accessMask -band 0xd0046){
+                            $task = New-Object psobject -Property @{
+                                Service     = $service.name
+                                Path        = $pathname
+                                Trustee     = $trustee
+                                DirWriteable = $true
+                            }
+                            $tasks.add($task) | Out-Null
+                        }
+                    }
+                }
+            }
         }
-        if($writableServices.Count -gt 0){
-            $writableServices  |Format-List
+        if($list.Count -eq 0){
+            return "[+] No Weird ACL on Service Binary or Folders Found"
         }else{
-            Write-Output "[+] No Weird ACL on Service Binary Found"
+            return $list
         }
     }catch{
-        Write-Output "[-] $($_.Exception.Message)"
+        return "[-] $($_.Exception.Message)"
     }
 }
 function Get-LocalShares {
@@ -182,7 +280,7 @@ function Get-LocalShares {
         0x40000 =   "Write access to DACL";
         0x80000 =   "Write Onwer"
     }
-    $shares = New-Object System.Collections.ArrayList
+    $list = New-Object System.Collections.ArrayList
     try{
         Get-WmiObject -class Win32_share -Filter "type=0"| foreach {
             $shareSecurityObj = Get-WmiObject -class Win32_LogicalShareSecuritySetting -Filter "Name='$($_.Name)'"
@@ -199,21 +297,21 @@ function Get-LocalShares {
                         }
                     }
                     $share = New-Object  PSObject -Property @{
-                        "ShareName"    =  $_.Name     
-                        "Trustee"      =  $ace.trustee.Name 
-                        "Permissions"  =  $permissions
+                        ShareName   =  $_.Name     
+                        Trustee     =  $ace.trustee.Name 
+                        Permissions =  $permissions
                     }
-                    $shares.add($share) | Out-Null
+                    $list.add($share) | Out-Null
                 }
             }    
         }
     }catch{
-        Write-Output "[-] $($_.Exception.Message)"
+        return "[-] $($_.Exception.Message)"
     }
-    if($shares.Count -gt 0){
-        Write-Output ($shares | Format-List ShareName,Trustee, Permissions)
+    if($list.Count -gt 0){
+        return $list
     }else{
-        Write-Output "[*] No local Shares Were Found"
+        return "[*] No local Shares Were Found"
     }
 }
 function Get-UACLevel {
@@ -236,20 +334,20 @@ function Get-UACLevel {
         $consentPrompt = $UACregValues.ConsentPromptBehaviorAdmin
         $secureDesktop = $UACregValues.PromptOnSecureDesktop
         if ( $consentPrompt -eq 0 -and $secureDesktop -eq 0) {
-            Write-Output "[*] UAC Level : Never Notify"
+            return "[*] UAC Level : Never Notify"
         }
         elseif ($consentPrompt -eq 5 -and $secureDesktop -eq 0) {
-            Write-Output "[*] UAC Level : Notify only when apps try to make changes (No secure desktop)"
+            return "[*] UAC Level : Notify only when apps try to make changes (No secure desktop)"
         }
         elseif ($consentPrompt -eq 5 -and $secureDesktop -eq 1) {
-            Write-Output "[*] UAC Level : Notify only when apps try to make changes (secure desktop on)"
+            return "[*] UAC Level : Notify only when apps try to make changes (secure desktop on)"
         }
         elseif ($consentPrompt -eq 5 -and $secureDesktop -eq 2) {
-            Write-Output "[*] UAC Level : Always Notify with secure desktop"
+            return "[*] UAC Level : Always Notify with secure desktop"
         }
     }
     catch {
-        Write-Output "[-] $($_.Exception.Message)"
+        return "[-] $($_.Exception.Message)"
     }
 }
 function Get-RegistryAutoLogon {
@@ -624,6 +722,7 @@ function Get-LocalSecurityProducts {
     .LINK
     http://neophob.com/2010/03/wmi-query-windows-securitycenter2
     #>
+    $SecInfoHash = @{}
     $firewallPolicySubkey="HKLM:\SYSTEM\ControlSet001\Services\SharedAccess\Parameters\FirewallPolicy"
     try{
 	    if(Test-Path -Path $($firewallPolicySubkey+"\StandardProfile")){
@@ -634,7 +733,7 @@ function Get-LocalSecurityProducts {
             else{
                 $standardProfile="Disabled"
             }
-            Write-Output "[*] Standard Profile Firewall : $standardProfile"
+            $SecInfoHash.Add("Standard Profile Firewall",$standardProfile)
         }else{
             Write-Warning  "[-] Could not find Standard Profile Registry Subkey"
 	    }    
@@ -646,9 +745,9 @@ function Get-LocalSecurityProducts {
             else{
                 $publicProfile="Disabled"
             }
-            Write-Output "[*] Public Profile Firewall   : $publicProfile"
+            $SecInfoHash.Add("Public Profile Firewall",$publicProfile)
         }else{
-	        Write-Warning "[-] Could not find Public Profile Registry Subkey"
+	        Write-Output "[-] Could not find Public Profile Registry Subkey"
         }
         if(Test-Path -Path $($firewallPolicySubkey+"\DomainProfile")){
             $enabled = (Get-ItemProperty -Path $($firewallPolicySubkey+"\DomainProfile") -Name EnableFirewall).EnableFirewall  
@@ -657,7 +756,7 @@ function Get-LocalSecurityProducts {
             }else{
                 $domainProfile="Disabled"
             }
-            Write-Output "[*] Domain Profile Firewall   : $domainProfile"
+            $SecInfoHash.Add("Domain Profile Firewall", $domainProfile)
         }else{       
             Write-Warning "[-] Could not find Private Profile Registry Subkey"
 	    }              
@@ -695,14 +794,14 @@ function Get-LocalSecurityProducts {
         $securityCenterNS="root\SecurityCenter"
     }       
     # checks for third party firewall products 
-    Write-Output "`n[*] Checking for third party Firewall products" 
+    #Write-Output "`n[*] Checking for third party Firewall products" 
     try {  
         $firewalls= @(Get-WmiObject -Namespace $securityCenterNS -class FirewallProduct)
         if($firewalls.Count -eq 0){
-	        Write-Output "[-] No other firewall installed"
+	        $SecInfoHash.Add("FW from third party?", $false)
         }else{
-            Write-Output "[+] Found $($firewalls.Count) third party firewall products"
             $firewalls| foreach {
+                $SecInfoHash.Add("FW from third party?", $true)
                 # The structure of the API is different depending on the version of the SecurityCenter Namespace
                 if($securityCenterNS.endswith("2")){
                     [int]$productState=$_.ProductState
@@ -710,23 +809,23 @@ function Get-LocalSecurityProducts {
                     $provider=$hexString.substring(0,2)
                     $realTimeProtec=$hexString.substring(2,2)
                     $definition=$hexString.substring(4,2)
-                    "[+] Product Name: $($_.displayName)"
-                    "[+] Service Type: $($SecurityProvider[[String]$provider])"
-                    "[+] State       : $($RealTimeBehavior[[String]$realTimeProtec])"
+                    $SecInfoHash.Add("FW Product Name", $($_.displayName))
+                    $SecInfoHash.Add("FW Service Type", $($SecurityProvider[[String]$provider]))
+                    $SecInfoHash.Add("FW State       ", $($RealTimeBehavior[[String]$realTimeProtec]))
                 }else{
-                    "[+] Company Name: $($_.CompanyName)"
-                    "[+] Product Name: $($_.displayName)"
-                    "[+] State       : $($_.enabled)"
+                    $SecInfoHash.Add("FW Company Name", $($_.CompanyName))
+                    $SecInfoHash.Add("FW Product Name", $($_.displayName))
+                    $SecInfoHash.Add("FW State       ", $($_.enabled))
                 }
             }
         }
         # checks for antivirus products
-        Write-Output "`n[*] Checking for installed antivirus products" 
+        #Write-Output "`n[*] Checking for installed antivirus products" 
         $antivirus=@(Get-WmiObject -Namespace $securityCenterNS -class AntiVirusProduct)
         if($antivirus.Count -eq 0){
-            Write-Output "[-] No antivirus product installed"      
+            $SecInfoHash.Add("AntiVirus installed?", $false)
         }else{
-            Write-Output "[+] Found $($antivirus.Count) AntiVirus solutions"
+            $SecInfoHash.Add("AntiVirus installed?", $true)
         	$antivirus| foreach {
                 if($securityCenterNS.endswith("2")){
                  	[int]$productState=$_.ProductState
@@ -734,25 +833,25 @@ function Get-LocalSecurityProducts {
                     $provider=$hexString.substring(0,2)
                     $realTimeProtec=$hexString.substring(2,2)
                     $definition=$hexString.substring(4,2)
-                    "[+] Product Name          :  $($_.displayName)"
-                    "[+] Service Type          :  $($SecurityProvider[[String]$provider])"
-                    "[+] Real Time Protection  :  $($RealTimeBehavior[[String]$realTimeProtec])"
-                    "[+] Signature Definitions :  $($DefinitionStatus[[String]$definition])"
+                    $SecInfoHash.Add("AV Product Name         ",$($_.displayName))
+                    $SecInfoHash.Add("AV Service Type         ",$($SecurityProvider[[String]$provider]))
+                    $SecInfoHash.Add("AV Real Time Protection ",$($RealTimeBehavior[[String]$realTimeProtec]))
+                    $SecInfoHash.Add("AV Signature Definitions",$($DefinitionStatus[[String]$definition]))
                 }else{
-                    "[+] Company Name           : $($_.CompanyName)"
-                    "[+] Product Name           : $($_.displayName)"
-                    "[+] Real Time Protection   : $($_.onAccessScanningEnabled)"
-                    "[+] Product up-to-date     : $($_.productUpToDate)"
+                    $SecInfoHash.Add("AV Company Name        ",$($_.CompanyName))
+                    $SecInfoHash.Add("AV Product Name        ",$($_.displayName))
+                    $SecInfoHash.Add("AV Real Time Protection",$($_.onAccessScanningEnabled))
+                    $SecInfoHash.Add("AV Product up-to-date  ",$($_.productUpToDate))
                 }
             }
         }
         # Checks for antispyware products
-	    Write-Output "`n[?] Checking for installed antispyware products" 
+	    #Write-Output "`n[*] Checking for installed antispyware products" 
         $antispyware=@(Get-WmiObject -Namespace $securityCenterNS -class AntiSpywareProduct)
         if($antispyware.Count -eq 0){
-            Write-Output "[-] No antiSpyware product installed"     
-        }else{
-            Write-Output "[+] Found $($antiSpyware.Count) antiSpyware solutions"
+            $SecInfoHash.Add("AntiSpyware installed?", $false)     
+        }else{ 
+            $SecInfoHash.Add("AntiSpyware installed?", $true)   
             $antispyware| foreach {
 		        if($securityCenterNS.endswith("2")){
                     [int]$productState=$_.ProductState
@@ -760,26 +859,29 @@ function Get-LocalSecurityProducts {
                     $provider=$hexString.substring(0,2)
                     $realTimeProtec=$hexString.substring(2,2)
                     $definition=$hexString.substring(4,2)
-                    Write-Output "[+] Product Name         : $($_.displayName)" 
-                    Write-Output "[+] Service Type         : $($SecurityProvider[[String]$provider])" 
-                    Write-Output "[+] Real Time Protection : $($RealTimeBehavior[[String]$realTimeProtec])" 
-                    Write-Output "[+] Signature Definitions: $($DefinitionStatus[[String]$definition])" 
+                    $SecInfoHash.Add("Spyware Product Name         ", $($_.displayName))
+                    $SecInfoHash.Add("Spyware Service Type         ", $($SecurityProvider[[String]$provider]))
+                    $SecInfoHash.Add("Spyware Real Time Protection ", $($RealTimeBehavior[[String]$realTimeProtec]))
+                    $SecInfoHash.Add("Spyware Signature Definitions", $($DefinitionStatus[[String]$definition]))
                 }else{
-                    Write-Output "[+] Company Name         : $($_.CompanyName)" 
-                    Write-Output "[+] Product Name         : $($_.displayName)" 
-                    Write-Output "[+] Real Time Protection : $($_.onAccessScanningEnabled)" 
-                    Write-Output "[+] Product up-to-date   : $($_.productUpToDate)" 
+                    $SecInfoHash.Add("Spyware Company Name         ", $($_.CompanyName)) 
+                    $SecInfoHash.Add("Spyware Product Name         ", $($_.displayName))
+                    $SecInfoHash.Add("Spyware Real Time Protection ", $($_.onAccessScanningEnabled))
+                    $SecInfoHash.Add("Spyware Product up-to-date   ", $($_.productUpToDate))
                 }
             }
         }
     }catch{
         Write-Output "[-] $($_.Exception.Message)"
     }
+    $SecObject = New-Object -TypeName PSobject -Property $SecInfoHash
+    return $SecObject | Select-Object 'Domain Profile Firewall','Standard Profile Firewall','Public Profile Firewall','AntiVirus installed?','AV*','AntiSpyware installed?','Spyware*','FW*'
 }
 function Get-ScheduledTasks {
     <#
+    Modified https://github.com/A-mIn3/WINspect
     .SYNOPSIS
-    Checks for scheduled tasks whose binaries are not in *.system32.*
+    Checks for scheduled tasks
     .DESCRIPTION
     This function looks for scheduled tasks invoking non-system executables.
     .NOTE
@@ -787,11 +889,11 @@ function Get-ScheduledTasks {
     scheduled task and then tries to parse the results. Here I choose to parse XML output from the command.
     Another approach would be using the ScheduledTask Powershell module that was introduced starting from version 3.0 .
     #>
-    $tasks = New-Object System.Collections.ArrayList
+    $list = New-Object System.Collections.ArrayList
     [xml]$tasksXMLobj = $(schtasks.exe /query /xml ONE)
     $tasksXMLobj.Tasks.Task | foreach {
         $taskCommandPath = [System.Environment]::ExpandEnvironmentVariables($_.actions.exec.command).trim()
-        if(($taskCommandPath) -and ($taskCommandPath -notmatch ".*system32.*")){
+        if(($taskCommandPath) -and (Test-Path $taskCommandPath)){
             if($_.Principals.Principal.UserID){
                 $sid = New-Object System.Security.Principal.SecurityIdentifier($_.Principals.Principal.UserID)
                 $taskSecurityContext = $sid.Translate([System.Security.Principal.NTAccount])
@@ -801,28 +903,93 @@ function Get-ScheduledTasks {
             }else{
                 $taskSecurityContext = 'Error translating sid'
             }
-            $task = New-Object psobject -Property @{
-                TaskCommand = $taskCommandPath
-                SecurityContext  = $taskSecurityContext
+            if(($taskSecurityContext -notlike 'BUILTIN\Users') -and ($taskSecurityContext -notlike 'NT AUTHORITY\Authenticated Users')){
+                #dir acl
+                $dir = (Get-ChildItem $taskCommandPath).DirectoryName
+                $acls = (Get-Acl $dir).GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])  | where {$_.AccessControlType -match 'allow'}
+                foreach($acl in $acls){
+                    try{
+                        $trustee = $acl.IdentityReference.Translate([System.Security.Principal.NTAccount])
+                    }catch{
+                        return
+                    }
+                    if(($trustee -notmatch 'System') -and ($trustee -notmatch 'Administrator') -and ($trustee -notmatch 'TrustedInstaller')){
+                        # Here we are checking directory write access in UNIX sense (write/delete/modify permissions)
+                        # We use a combination of flags 
+                        $accessMask = $acl.FileSystemRights.value__
+                        if($accessMask -band 0xd0046){
+                            $task = New-Object psobject -Property @{
+                                TaskCommand = $taskCommandPath
+                                TaskSecurityContext = $taskSecurityContext
+                                trustee  = $trustee
+                                DirWriteable = $true
+                            }
+                            $list.add($task) | Out-Null
+                        }
+                    }
+                }
+                #file acl
+                $abusable=@(
+                    'Modify',
+                    'TakeOwnership',
+                    'ChangePermissions',
+                    'Write',
+                    'Delete',
+                    'FullControl'
+                )
+                $acls = (Get-Acl $taskCommandPath).GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])  | where {$_.AccessControlType -match 'allow'}
+                foreach($acl in $acls){
+                    try{
+                        $trustee = $acl.IdentityReference.Translate([System.Security.Principal.NTAccount])
+                    }catch{
+                        return
+                    }
+                    if(($trustee -notmatch 'System') -and ($trustee -notmatch 'Administrator') -and ($trustee -notmatch 'TrustedInstaller')){
+                        $permissions = $acl.FileSystemRights.ToString().split(',').trim()
+                        foreach($permission in $permissions){
+                            if(($abusable -contains $permission)){
+                                $data = New-Object  PSObject -Property @{
+                                    TaskCommand    = $taskCommandPath
+                                    TaskSecurityContext = $taskSecurityContext
+                                    Trustee        = $trustee
+                                    Permissions    = $permissions
+                                }
+                                $list.add($data) | Out-Null
+                                return
+                            }
+                        }
+                    }
+                }
             }
-            $tasks.add($task) | Out-Null
         }
     }
-    if($null -eq $task){
-        Write-Output "[+] No suspicious scheduled tasks were found"
+    if($list -eq 0){
+        return "[+] No suspicious scheduled tasks were found"
     }else{
-        Write-Output $tasks | Format-List taskCommand,SecurityContext
+        return $list
     }
 }
 function Invoke-WinEnum{
-    Write-Output "[*] ComputerName $env:COMPUTERNAME"
-    Write-Output "[*] User $env:USERNAME"
-    Write-Output "[*] UserDomain $env:USERDOMAIN"
+    #
+    Write-Output "`n[*] Checking System Information"
+    try{
+        Get-SysInfo
+    }catch{
+        Write-Output "[-] SysInfo Failed"
+    }
+
+    #
+    Write-Output "`n[*] Checking Local Security Products"
+    try{
+        Get-LocalSecurityProducts
+    }catch{
+        Write-Output "[-] Local Security Products Failed"
+    }
 
     #https://powersploit.readthedocs.io/en/latest/Privesc/Get-RegistryAutoLogon/
     Write-Output "`n[*] Checking AutoLogon"
     try{
-        $autologon = Get-RegistryAutoLogon
+        $autologon = Get-RegistryAutoLogon -ErrorAction Stop
         if($autologon){
             Write-Output "[-] AutoLogon Credentials Found"
             $autologon
@@ -836,7 +1003,7 @@ function Invoke-WinEnum{
     #https://powersploit.readthedocs.io/en/latest/Privesc/Get-CachedGPPPassword/
     Write-Output "`n[*] Checking CachedGPPPassword"
     try{
-        $CachedGPPPassword = Get-CachedGPPPassword
+        $CachedGPPPassword = Get-CachedGPPPassword -ErrorAction Stop
         if($CachedGPPPassword){
             Write-Output "[-] CachedGPPPassword Found"
             $CachedGPPPassword
@@ -850,7 +1017,7 @@ function Invoke-WinEnum{
     #https://powersploit.readthedocs.io/en/latest/Privesc/Get-UnattendedInstallFile/
     Write-Output "`n[*] Checking UnattendedInstallFiles"
     try{
-        $UnattendedInstallFile = Get-UnattendedInstallFile
+        $UnattendedInstallFile = Get-UnattendedInstallFile -ErrorAction Stop
         if($UnattendedInstallFile){
             Write-Output "[-] UnattendedInstallFiles Found"
             $UnattendedInstallFile
@@ -864,7 +1031,7 @@ function Invoke-WinEnum{
     #https://powersploit.readthedocs.io/en/latest/Privesc/Get-UnquotedService/
     Write-Output "`n[*] Checking Unquoted Services"
     try{
-        $UnquotedService = Get-UnquotedService
+        $UnquotedService = Get-UnquotedService -ErrorAction Stop
         if($UnquotedService){
             Write-Output "[-] Unquoted Services Found"
             $UnquotedService
@@ -878,7 +1045,7 @@ function Invoke-WinEnum{
     #https://powersploit.readthedocs.io/en/latest/Privesc/Get-RegistryAlwaysInstallElevated/
     Write-Output "`n[*] Checking AlwaysInstallElevated"
     try{
-        $UnquotedService = Get-RegistryAlwaysInstallElevated
+        $UnquotedService = Get-RegistryAlwaysInstallElevated -ErrorAction Stop
         if($UnquotedService){
             Write-Output "[-] AlwaysInstallElevated Found"
             $UnquotedService
@@ -890,15 +1057,7 @@ function Invoke-WinEnum{
     }
 
     #
-    Write-Output "`n[*] Checking Local Security Products"
-    try{
-        Get-LocalSecurityProducts
-    }catch{
-        Write-Output "[-] Local Security Products Failed"
-    }
-
-    #
-    Write-Output "`n[*] Checking for UAC Configuration"
+    Write-Output "`n[*] Checking UAC Configuration"
     try{
         Get-UACLevel
     }catch{
@@ -906,43 +1065,51 @@ function Invoke-WinEnum{
     }
 
     #
-    Write-Output "`n[*] Checking for Local Shares"
+    Write-Output "`n[*] Checking ACL's on Local Shares"
     try{
         Get-LocalShares
     }catch{
-        Write-Output "[-] Checking for Local Shares Failed"
+        Write-Output "[-] Checking for ACL's on Local Shares Failed"
     }
 
     #
-    Write-Output "`n[*] Checking for ScheduledTasks Not Located in System32"
+    Write-Output "`n[*] Checking ACL's on Possible High Integrity Scheduled Tasks Binaries and Folders"
     try{
         Get-ScheduledTasks
     }catch{
-        Write-Output "[-] Checking for ScheduledTasks Failed"
+        Write-Output "[-] Checking ACL's on Possible High Integrity Scheduled Tasks Failed"
     }
 
-    #
+    #https://attack.mitre.org/techniques/T1038/
     Write-Output "`n[*] Checking ACL's on Folders in System Path"
     try{
-        Get-DLLHijackingAbility
+        Get-WritableSystemPath
     }catch{
         Write-Output "[-] Checking ACL's on Folders in System Path Failed"
     }
 
     #
-    Write-Output "`n[*] Checking ACL's on Services Binaries"
+    Write-Output "`n[*] Checking ACL's on Services Binaries and Folders"
     try{
-        Get-BinaryWritableServices
+        Get-WritableServicesBinary
     }catch{
         "[-] Checking ACL's on Services Binaries Failed"
     }
 
     #
-    Write-Output "`n[*] Checking AutoRun"
+    Write-Output "`n[*] Checking AutoRuns"
     try{
         Get-AutoRuns
     }catch{
-        "[-] Checking AutoRun Failed"
+        "[-] Checking AutoRuns Failed"
+    }
+    
+    #
+    Write-Output "`n[*] Checking Active Listenings Ports"
+    try{
+        Get-ActiveListeners | Format-Table
+    }catch{
+        "[-] Checking Active Listenings Failed"
     }
 }
 #Invoke-WinEnum
