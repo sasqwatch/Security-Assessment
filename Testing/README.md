@@ -14,7 +14,7 @@ Scripts written to aid automated scanning during whitebox security/vuln assessme
 * ACL on Local SMB Shares
 * ACL on Possible High Privileged Scheduled Tasks Binaries and Directories
 * ACL on Service Binaries and Directories
-* ACL on System PATH and Local Administrator Directories
+* ACL on Directories located in System and Local Administrators PATH Variable
 * AutoRuns for System and Local Administrators
 * Active Listenings Ports
 (ACL's belonging to System, Administrator, and TrustedInstaller is being ignored)
