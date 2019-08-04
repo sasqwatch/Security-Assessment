@@ -1,3 +1,9 @@
+function Get-LocalAdministrators {
+    $group = get-wmiobject win32_group -ComputerName $env:COMPUTERNAME -Filter "LocalAccount=True AND SID='S-1-5-32-544'"
+    $query = "GroupComponent = `"Win32_Group.Domain='$($group.domain)'`,Name='$($group.name)'`""
+    $list = Get-WmiObject win32_groupuser -Filter $query | foreach {[wmi]$_.PartComponent} 
+    return $list 
+}
 function Get-SysInfo {
     <#
     https://github.com/threatexpress/red-team-scripts/blob/master/HostEnum.ps1
@@ -31,10 +37,11 @@ function Get-SysInfo {
         UACFILTERADMINISTRATORTOKEN = If((Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System -EA 0).FilterAdministratorToken -eq 1){"Enabled (RID500 protected)"} Else {"Disabled (PTH likely with RID500 Account)"}
         HIGHINTEGRITY           = $IsHighIntegrity
         DENYRDPCONNECTIONS      = [bool](Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server" -EA 0).FDenyTSConnections
+        LOCALADMINS             = (Get-LocalAdministrators).name -join ', '
     }      
     # PS feels the need to randomly re-order everything when converted to an object so let's presort
     $SysInfoObject = New-Object -TypeName PSobject -Property $SysInfoHash 
-    return $SysInfoObject | Select-Object Hostname, OS, Architecture, "Date(UTC)", "Date(Local)", InstallDate, IPAddresses, Domain, Username, LogonServer, PSVersion, PSCompatibleVersions, PSScriptBlockLogging, PSTranscription, PSTranscriptionDir, PSModuleLogging, LSASSProtection, LAPS, UACLocalAccountTokenFilterPolicy, UACFilterAdministratorToken, HighIntegrity, DENYRDPCONNECTIONS
+    return $SysInfoObject | Select-Object Hostname, OS, Architecture, "Date(UTC)", "Date(Local)", InstallDate, IPAddresses, Domain, Username, LogonServer, PSVersion, PSCompatibleVersions, PSScriptBlockLogging, PSTranscription, PSTranscriptionDir, PSModuleLogging, LSASSProtection, LAPS, UACLocalAccountTokenFilterPolicy, UACFilterAdministratorToken, HighIntegrity, DENYRDPCONNECTIONS, LOCALADMINS
 }
 function Get-ActiveListeners {
     <#
@@ -159,7 +166,7 @@ function Get-WritableSystemPath {
                 }catch{
                     return
                 }
-                if(($trustee -notmatch 'System') -and ($trustee -notmatch 'Administrator') -and ($trustee -notmatch 'TrustedInstaller')){
+                if(($trustee -notmatch 'NT AUTHORITY') -and ($trustee -notmatch 'Administrator') -and ($trustee -notmatch 'TrustedInstaller') -and ($trustee -notmatch 'CREATOR OWNER')){
                     # Here we are checking directory write access in UNIX sense (write/delete/modify permissions)
                     # We use a combination of flags 
                     $accessMask = $acl.FileSystemRights.value__
@@ -182,7 +189,7 @@ function Get-WritableSystemPath {
         return $list
     }
 }
-function Get-WritableServicesBinary {
+function Get-WritableServices {
     <#
     Modified https://github.com/A-mIn3/WINspect
     .SYNOPSIS
@@ -203,67 +210,64 @@ function Get-WritableServicesBinary {
     )
     $list = New-Object System.Collections.ArrayList
     $services = Get-WmiObject -Class Win32_Service| where {$_.pathname}
-    try{
-        $services | foreach {
-            $service = $_
-            $pathname = $($service.pathname.subString(0, $service.pathname.toLower().IndexOf(".exe")+4)).trim('"')
-            if(($pathname) -and (Test-Path $pathname)){
-                $acls = (Get-Acl $pathname).GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])  | where {$_.AccessControlType -match 'allow'}
-                foreach($acl in $acls){
-                    try{
-                        $trustee = $acl.IdentityReference.Translate([System.Security.Principal.NTAccount])
-                    }catch{
-                        return
-                    }
-                    if(($trustee -notmatch 'System') -and ($trustee -notmatch 'Administrator') -and ($trustee -notmatch 'TrustedInstaller')){
-                        $permissions = $acl.FileSystemRights.ToString().split(',').trim()
-                        foreach($permission in $permissions){
-                            if(($abusable -contains $permission)){
-                                $data = New-Object  PSObject -Property @{
-                                    Service     = $service.name
-                                    Path        = $pathname
-                                    Trustee     = $trustee
-                                    Permissions = $permissions
-                                }
-                                $list.add($data) | Out-Null
-                                return
-                            }
-                        }
-                    }
+    $services | foreach {
+        $service = $_
+        $pathname = $($service.pathname.subString(0, $service.pathname.toLower().IndexOf(".exe")+4)).trim('"')
+        if(($pathname) -and (Test-Path $pathname)){
+            #File acl
+            $acls = (Get-Acl $pathname).GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])  | where {$_.AccessControlType -match 'allow'}
+            foreach($acl in $acls){
+                try{
+                    $trustee = $acl.IdentityReference.Translate([System.Security.Principal.NTAccount])
+                }catch{
+                    return
                 }
-                #Dir acl
-                $dir = (Get-ChildItem $pathname).DirectoryName
-                $acls = (Get-Acl $dir).GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])  | where {$_.AccessControlType -match 'allow'}
-                foreach($acl in $acls){
-                    try{
-                        $trustee = $acl.IdentityReference.Translate([System.Security.Principal.NTAccount])
-                    }catch{
-                        return
-                    }
-                    if(($trustee -notmatch 'System') -and ($trustee -notmatch 'Administrator') -and ($trustee -notmatch 'TrustedInstaller')){
-                        # Here we are checking directory write access in UNIX sense (write/delete/modify permissions)
-                        # We use a combination of flags 
-                        $accessMask = $acl.FileSystemRights.value__
-                        if($accessMask -band 0xd0046){
-                            $task = New-Object psobject -Property @{
+                if(($trustee -notmatch 'NT AUTHORITY') -and ($trustee -notmatch 'Administrator') -and ($trustee -notmatch 'TrustedInstaller') -and ($trustee -notmatch 'CREATOR OWNER')){
+                    $permissions = $acl.FileSystemRights.ToString().split(',').trim()
+                    foreach($permission in $permissions){
+                        if(($abusable -contains $permission)){
+                            $data = New-Object  PSObject -Property @{
                                 Service     = $service.name
                                 Path        = $pathname
                                 Trustee     = $trustee
-                                DirWriteable = $true
+                                Permissions = $permissions -join ', '
                             }
-                            $tasks.add($task) | Out-Null
+                            $list.add($data) | Out-Null
+                            return
                         }
                     }
                 }
             }
+            #Dir acl
+            $dir = (Get-ChildItem $pathname).DirectoryName
+            $acls = (Get-Acl $dir).GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])  | where {$_.AccessControlType -match 'allow'}
+            foreach($acl in $acls){
+                try{
+                    $trustee = $acl.IdentityReference.Translate([System.Security.Principal.NTAccount])
+                }catch{
+                    return
+                }
+                if(($trustee -notmatch 'NT AUTHORITY') -and ($trustee -notmatch 'Administrator') -and ($trustee -notmatch 'TrustedInstaller') -and ($trustee -notmatch 'CREATOR OWNER')){
+                    # Here we are checking directory write access in UNIX sense (write/delete/modify permissions)
+                    # We use a combination of flags 
+                    $accessMask = $acl.FileSystemRights.value__
+                    if($accessMask -band 0xd0046){
+                        $task = New-Object psobject -Property @{
+                            Service     = $service.name
+                            Path        = $pathname
+                            Trustee     = $trustee
+                            DirWriteable = $true
+                        }
+                        $list.add($task) | Out-Null
+                    }
+                }
+            }
         }
-        if($list.Count -eq 0){
-            return "[+] No Weird ACL on Service Binary or Folders Found"
-        }else{
-            return $list
-        }
-    }catch{
-        return "[-] $($_.Exception.Message)"
+    }
+    if($list.Count -eq 0){
+        return "[+] No Weird ACL on Service Binary or Folders Found"
+    }else{
+        return $list
     }
 }
 function Get-LocalShares {
@@ -293,7 +297,7 @@ function Get-LocalShares {
                     foreach($flag in $permissionFlags.Keys){
                         if($flag -band $accessMask){
                             $permissions+=$permissionFlags[$flag]
-                            $permissions+=";"
+                            $permissions+=", "
                         }
                     }
                     $share = New-Object  PSObject -Property @{
@@ -877,7 +881,7 @@ function Get-LocalSecurityProducts {
     $SecObject = New-Object -TypeName PSobject -Property $SecInfoHash
     return $SecObject | Select-Object 'Domain Profile Firewall','Standard Profile Firewall','Public Profile Firewall','AntiVirus installed?','AV*','AntiSpyware installed?','Spyware*','FW*'
 }
-function Get-ScheduledTasks {
+function Get-WriteableScheduledTasks {
     <#
     Modified https://github.com/A-mIn3/WINspect
     .SYNOPSIS
@@ -913,7 +917,7 @@ function Get-ScheduledTasks {
                     }catch{
                         return
                     }
-                    if(($trustee -notmatch 'System') -and ($trustee -notmatch 'Administrator') -and ($trustee -notmatch 'TrustedInstaller')){
+                    if(($trustee -notmatch 'NT AUTHORITY') -and ($trustee -notmatch 'Administrator') -and ($trustee -notmatch 'TrustedInstaller') -and ($trustee -notmatch 'CREATOR OWNER')){
                         # Here we are checking directory write access in UNIX sense (write/delete/modify permissions)
                         # We use a combination of flags 
                         $accessMask = $acl.FileSystemRights.value__
@@ -944,7 +948,7 @@ function Get-ScheduledTasks {
                     }catch{
                         return
                     }
-                    if(($trustee -notmatch 'System') -and ($trustee -notmatch 'Administrator') -and ($trustee -notmatch 'TrustedInstaller')){
+                    if(($trustee -notmatch 'NT AUTHORITY') -and ($trustee -notmatch 'Administrator') -and ($trustee -notmatch 'TrustedInstaller') -and ($trustee -notmatch 'CREATOR OWNER')){
                         $permissions = $acl.FileSystemRights.ToString().split(',').trim()
                         foreach($permission in $permissions){
                             if(($abusable -contains $permission)){
@@ -952,7 +956,7 @@ function Get-ScheduledTasks {
                                     TaskCommand    = $taskCommandPath
                                     TaskSecurityContext = $taskSecurityContext
                                     Trustee        = $trustee
-                                    Permissions    = $permissions
+                                    Permissions    = $permissions -join ', '
                                 }
                                 $list.add($data) | Out-Null
                                 return
@@ -971,6 +975,7 @@ function Get-ScheduledTasks {
 }
 function Invoke-WinEnum{
     #
+    $timer = [Diagnostics.Stopwatch]::StartNew()
     Write-Output "`n[*] Checking System Information"
     try{
         Get-SysInfo
@@ -1073,9 +1078,9 @@ function Invoke-WinEnum{
     }
 
     #
-    Write-Output "`n[*] Checking ACL's on Possible High Integrity Scheduled Tasks Binaries and Folders"
+    Write-Output "`n[*] Checking ACL's on Possible High Privileged Scheduled Tasks Binaries and Folders"
     try{
-        Get-ScheduledTasks
+        Get-WriteableScheduledTasks
     }catch{
         Write-Output "[-] Checking ACL's on Possible High Integrity Scheduled Tasks Failed"
     }
@@ -1091,7 +1096,7 @@ function Invoke-WinEnum{
     #
     Write-Output "`n[*] Checking ACL's on Services Binaries and Folders"
     try{
-        Get-WritableServicesBinary
+        Get-WritableServices
     }catch{
         "[-] Checking ACL's on Services Binaries Failed"
     }
@@ -1111,5 +1116,8 @@ function Invoke-WinEnum{
     }catch{
         "[-] Checking Active Listenings Failed"
     }
+    Write-Output "Scan took $($timer.Elapsed.TotalSeconds) Seconds"
+    $timer.Stop()
 }
+
 #Invoke-WinEnum
