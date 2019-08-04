@@ -8,7 +8,7 @@ function Get-SysInfo {
     <#
     https://github.com/threatexpress/red-team-scripts/blob/master/HostEnum.ps1
     .SYNOPSIS
-    Gets basic system information from the host
+    Get basic system information from the host
     #>
     $os_info = gwmi Win32_OperatingSystem
     $date = Get-Date
@@ -87,34 +87,57 @@ function Get-AutoRuns {
     It examines the properties of these keys and report any found executables along with their pathnames.
     #>
     $list = New-Object System.Collections.ArrayList
+    $adminPATH = @()
+    if(-not(Get-PSDrive | where {$_.name -like 'HKU'})){
+        New-PSDrive -PSProvider Registry -Name HKU -Root HKEY_USERS | Out-Null
+    }
+    $sids=(Get-LocalAdministrators).sid
+    foreach($sid in $sids){
+        $adminPATH += "HKU:\$sid\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run\"
+        $adminPATH += "HKU:\$sid\SOFTWARE\Microsoft\Windows\CurrentVersion\Run\"
+        $adminPATH += "HKU:\$sid\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce\"
+        $adminPATH += "HKU:\$sid\SOFTWARE\Microsoft\Windows\CurrentVersion\RunServices"
+        $adminPATH += "HKU:\$sid\SOFTWARE\Microsoft\Windows\CurrentVersion\RunServices"
+        $adminPATH += "HKU:\$sid\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows\load"
+        $adminPATH += "HKU:\$sid\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\\Shell"
+    }
     $RegistryKeys = @( 
+        $adminPATH
+        "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run\",
+        "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run\",
+        "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce\",
+        "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunServices",
+        "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunServicesOnce",
+        "HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows\load",
+        "HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\\Shell",
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run\",
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run\",
+        "HKLM:\Software\Microsoft\Windows\CurrentVersion\RunOnce",
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce\",
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnceEx\",
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnceService",
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunService",
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunServices\",
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunServicesOnce",
+        "HKLM:\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Run",
+        "HKLM:\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\RunOnce",
+        "HKLM:\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\RunOnceService",
+        "HKLM:\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\RunService", 
         "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\BootExecute",
+        "HKLM\Software\Microsoft\Windows NT\CurrentVersion\Windows",
+        "HKLM\Software\Microsoft\Windows NT\CurrentVersion\Windows\AppInit_DLLs", # DLLs specified in this entry can hijack any process that uses user32.dll 
+        "HKLM\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\\Shell",
         "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\Notify",
         "HKLM\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\Userinit",
-        "HKCU\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\\Shell",
-        "HKLM\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\\Shell",
-        "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\ShellServiceObjectDelayLoad",
-        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run\",
-        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce\",
-        "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run\",
-        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnceEx\",
-        "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce\",
-        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run\",
-        "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run\",
-        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunServices\",
-        "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunServices",
-        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunServicesOnce",
-        "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunServicesOnce",
-        "HKCU\Software\Microsoft\Windows NT\CurrentVersion\Windows\load",
-        "HKLM\Software\Microsoft\Windows NT\CurrentVersion\Windows",
-        "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\SharedTaskScheduler",
-        "HKLM\Software\Microsoft\Windows NT\CurrentVersion\Windows\AppInit_DLLs"   # DLLs specified in this entry can hijack any process that uses user32.dll 
+        "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\SharedTaskScheduler,"
+        "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\ShellServiceObjectDelayLoad"
         # not sure if it is all we need to check!
     )
     try{
-        $RegistryKeys | foreach {
+        $RegistryKeys | Sort-Object -Unique | foreach {
             $key = $_
-            if(Test-Path -Path $key){
+            if((Test-Path -Path $key -ErrorAction Stop)){
                 [array]$properties = get-item $key | Select-Object -ExpandProperty Property
                 if($properties.Count -gt 0){
                     foreach($exe in $properties) {
@@ -137,26 +160,28 @@ function Get-AutoRuns {
         return "[-] $($_.Exception.Message)"
     }
 }
-function Get-WritableSystemPath { 
+function Get-WritableAdminPath { 
     <#
     Modified https://github.com/A-mIn3/WINspect
-    https://attack.mitre.org/techniques/T1038/
     .SYNOPSIS
     Checks DLL Search mode and inspects permissions for directories in system %PATH%
     .DESCRIPTION
-    This functions tries to identify if DLL Safe Search is used and inspects 
-    write access to directories in the path environment variable .
+    inspects write access to directories in the path environment variable .
     #>
     $list = New-Object System.Collections.ArrayList
-    Write-Output "[*] Checking for Safe DLL Search mode" 
-    $value = Get-ItemProperty 'HKLM:\SYSTEM\ControlSet001\Control\Session Manager\' -Name SafeDllSearchMode -ErrorAction SilentlyContinue
-    if($value -and ($value.SafeDllSearchMode -eq 0)){
-        "[*] DLL Safe Search is disabled !"      
-    }else{
-        "[*] DLL Safe Search is enabled !"        
+    $adminPATH = @()
+    if(-not(Get-PSDrive | where {$_.name -like 'HKU'})){
+        New-PSDrive -PSProvider Registry -Name HKU -Root HKEY_USERS | Out-Null
     }
-    $systemPath = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment' -Name PATH).PATH
-    $systemPath.split(";") | foreach {
+    $sids=(Get-LocalAdministrators).sid
+    foreach($sid in $sids){
+        try{
+        $adminPATH += ((Get-ItemProperty HKU:\$sid\Environment\ -Name Path -ErrorAction SilentlyContinue).Path.split(';') | where {$_})
+        }catch{}
+    }
+    $systemPATH = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment' -Name PATH).PATH.split(';')
+    $path = $adminPATH + $systemPATH
+    $path | Sort-Object -Unique | foreach {
         $directory = $_
         if(Test-Path $directory){
             $acls = (Get-Acl $($directory.trim('"'))).GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])  | where {$_.AccessControlType -match 'allow'}
@@ -1085,10 +1110,10 @@ function Invoke-WinEnum{
         Write-Output "[-] Checking ACL's on Possible High Integrity Scheduled Tasks Failed"
     }
 
-    #https://attack.mitre.org/techniques/T1038/
-    Write-Output "`n[*] Checking ACL's on Folders in System Path"
+    #
+    Write-Output "`n[*] Checking ACL's on Folders in Admins Path"
     try{
-        Get-WritableSystemPath
+        Get-WritableAdminPath
     }catch{
         Write-Output "[-] Checking ACL's on Folders in System Path Failed"
     }
