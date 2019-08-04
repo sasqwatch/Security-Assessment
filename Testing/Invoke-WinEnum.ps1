@@ -166,7 +166,7 @@ function Get-WritableSystemPath {
                 }catch{
                     return
                 }
-                if(($trustee -notmatch 'NT AUTHORITY') -and ($trustee -notmatch 'Administrator') -and ($trustee -notmatch 'TrustedInstaller') -and ($trustee -notmatch 'CREATOR OWNER')){
+                if(($trustee -notmatch 'System') -and ($trustee -notmatch 'Administrator') -and ($trustee -notmatch 'TrustedInstaller') -and ($trustee -notmatch 'CREATOR OWNER')){
                     # Here we are checking directory write access in UNIX sense (write/delete/modify permissions)
                     # We use a combination of flags 
                     $accessMask = $acl.FileSystemRights.value__
@@ -222,7 +222,7 @@ function Get-WritableServices {
                 }catch{
                     return
                 }
-                if(($trustee -notmatch 'NT AUTHORITY') -and ($trustee -notmatch 'Administrator') -and ($trustee -notmatch 'TrustedInstaller') -and ($trustee -notmatch 'CREATOR OWNER')){
+                if(($trustee -notmatch 'System') -and ($trustee -notmatch 'Administrator') -and ($trustee -notmatch 'TrustedInstaller') -and ($trustee -notmatch 'CREATOR OWNER')){
                     $permissions = $acl.FileSystemRights.ToString().split(',').trim()
                     foreach($permission in $permissions){
                         if(($abusable -contains $permission)){
@@ -247,7 +247,7 @@ function Get-WritableServices {
                 }catch{
                     return
                 }
-                if(($trustee -notmatch 'NT AUTHORITY') -and ($trustee -notmatch 'Administrator') -and ($trustee -notmatch 'TrustedInstaller') -and ($trustee -notmatch 'CREATOR OWNER')){
+                if(($trustee -notmatch 'System') -and ($trustee -notmatch 'Administrator') -and ($trustee -notmatch 'TrustedInstaller') -and ($trustee -notmatch 'CREATOR OWNER')){
                     # Here we are checking directory write access in UNIX sense (write/delete/modify permissions)
                     # We use a combination of flags 
                     $accessMask = $acl.FileSystemRights.value__
@@ -282,7 +282,7 @@ function Get-LocalShares {
         0x40    =   "Delete child"
         0x10000 =   "Delete";                     
         0x40000 =   "Write access to DACL";
-        0x80000 =   "Write Onwer"
+        0x80000 =   "Write Owner"
     }
     $list = New-Object System.Collections.ArrayList
     try{
@@ -917,7 +917,7 @@ function Get-WriteableScheduledTasks {
                     }catch{
                         return
                     }
-                    if(($trustee -notmatch 'NT AUTHORITY') -and ($trustee -notmatch 'Administrator') -and ($trustee -notmatch 'TrustedInstaller') -and ($trustee -notmatch 'CREATOR OWNER')){
+                    if(($trustee -notmatch 'System') -and ($trustee -notmatch 'Administrator') -and ($trustee -notmatch 'TrustedInstaller') -and ($trustee -notmatch 'CREATOR OWNER')){
                         # Here we are checking directory write access in UNIX sense (write/delete/modify permissions)
                         # We use a combination of flags 
                         $accessMask = $acl.FileSystemRights.value__
@@ -948,7 +948,7 @@ function Get-WriteableScheduledTasks {
                     }catch{
                         return
                     }
-                    if(($trustee -notmatch 'NT AUTHORITY') -and ($trustee -notmatch 'Administrator') -and ($trustee -notmatch 'TrustedInstaller') -and ($trustee -notmatch 'CREATOR OWNER')){
+                    if(($trustee -notmatch 'System') -and ($trustee -notmatch 'Administrator') -and ($trustee -notmatch 'TrustedInstaller') -and ($trustee -notmatch 'CREATOR OWNER')){
                         $permissions = $acl.FileSystemRights.ToString().split(',').trim()
                         foreach($permission in $permissions){
                             if(($abusable -contains $permission)){
