@@ -3,21 +3,21 @@ Scripts written to aid automated scanning during whitebox security/vuln assessme
 # Poc's
 ### Invoke-WinEnum.ps1
 	Invoke-WinEnum		-  Check Windows host security (to be continued. thx to Harmj0y and A-mIn3)
-	* General System Information
-	* Firewall, AntiVirus, and Spyware Product and Status
-	* Autologon Credentials
-	* Cached GPP Password
-	* Unattended Install Files
-	* Unquoted Services Paths
-	* AlwaysInstallElevated
-	* UAC Configuration 
-	* ACL on Local SMB Shares
-	* ACL on System PATH directories
-	* ACL on Possible High Privileged Scheduled Tasks Binaries and Their Folder
-	* ACL on Service Binaries and Their Folder
-	* AutoRuns
-	* Active Listenings Ports
-	(ACL's belonging to System, Administrator, and TrustedInstaller is being ignored)
+* General System Information
+* Firewall, AntiVirus, and Spyware Product and Status
+* Autologon Credentials
+* Cached GPP Password
+* Unattended Install Files
+* Unquoted Services Paths
+* AlwaysInstallElevated
+* UAC Configuration 
+* ACL on Local SMB Shares
+* ACL on Possible High Privileged Scheduled Tasks Binaries and Directories
+* ACL on Service Binaries and Directories
+* ACL on System PATH and Local Administrator Directories
+* AutoRuns for System and Local Administrators
+* Active Listenings Ports
+(ACL's belonging to System, Administrator, and TrustedInstaller is being ignored)
 ### Invoke-Chaps.ps1
 	Invoke-Chaps		-  Secure baseline checks (Modified version of chaps.ps1 originally written by cutaway)
 ### Test-Linux.ps1
