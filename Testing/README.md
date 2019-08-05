@@ -18,7 +18,6 @@ Scripts written to aid automated scanning during whitebox security/vuln assessme
 * ACL on Directories located in System and Local Administrators PATH Variable
 * Active Listenings Ports
 * Installed Software
-* Windows Defender
 * Additional Checks if Defender, IIS and MSSQL is Installed (Identified with Registry and Service)
 
 (ACL's for System, Local Administrators, and TrustedInstaller is being ignored)
