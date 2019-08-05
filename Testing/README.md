@@ -12,13 +12,13 @@ Scripts written to aid automated scanning during whitebox security/vuln assessme
 * AlwaysInstallElevated
 * UAC Configuration 
 * ACL on Local SMB Shares
-* ACL on Possible High Privileged Scheduled Tasks Binaries and Directories
 * ACL on Service Binaries and Directories
+* ACL on Possible High Privileged Scheduled Tasks Binaries and Directories
+* ACL on AutoRuns Binaries and Directories for System and Local Administrators
 * ACL on Directories located in System and Local Administrators PATH Variable
-* AutoRuns for System and Local Administrators
 * Active Listenings Ports
 
-(ACL's belonging to System, Administrator, and TrustedInstaller is being ignored)
+(ACL's for System, Local Administrators, and TrustedInstaller is being ignored)
 ### Invoke-Chaps.ps1
 	Invoke-Chaps		-  Secure baseline checks (Modified version of chaps.ps1 originally written by cutaway)
 ### Test-Linux.ps1
