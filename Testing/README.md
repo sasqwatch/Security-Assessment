@@ -17,6 +17,8 @@ Scripts written to aid automated scanning during whitebox security/vuln assessme
 * ACL on AutoRuns Binaries and Directories for System and Local Administrators
 * ACL on Directories located in System and Local Administrators PATH Variable
 * Active Listenings Ports
+* Installed Software
+* Additional Checks if IIS and MSSQL is Installed (Identified with Registry)
 
 (ACL's for System, Local Administrators, and TrustedInstaller is being ignored)
 ### Invoke-Chaps.ps1
