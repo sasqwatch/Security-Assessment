@@ -17,6 +17,7 @@ Scripts written to aid automated scanning during whitebox security/vuln assessme
 * ACL on Directories located in System and Local Administrators PATH Variable
 * AutoRuns for System and Local Administrators
 * Active Listenings Ports
+
 (ACL's belonging to System, Administrator, and TrustedInstaller is being ignored)
 ### Invoke-Chaps.ps1
 	Invoke-Chaps		-  Secure baseline checks (Modified version of chaps.ps1 originally written by cutaway)
@@ -29,8 +30,11 @@ Scripts written to aid automated scanning during whitebox security/vuln assessme
 	Invoke-Stager		-  Example how to use -ScriptPath or -URL with Test-Windows.ps1 functions
 ### Test-Domain.ps1
 	Invoke-Domain		-  Runs simple checks on the domain
-	Domain and Forest Trust, GPO Autologon and CPassword in Sysvol, ADIDNS Wildcard record,
-	Password Policy, MachineAccountQuota
+* Domain and Forest Trust
+* GPO Autologon and CPassword in Sysvol
+* Active Directory Integrated DNS Wildcard Record
+* Password Policy
+* MachineAccountQuota
 ### bloodhoundanalytics.py
 	Gather Active Directory statistics from BloodHound data
 
