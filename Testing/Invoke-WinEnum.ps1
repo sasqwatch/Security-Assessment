@@ -4,11 +4,26 @@ function Get-LocalAdministrators {
     $list = Get-WmiObject win32_groupuser -Filter $query | foreach {[wmi]$_.PartComponent} 
     return $list 
 }
-function Get-LocalPSRemoters {
+function Get-LocalPSRemote {
     $group = get-wmiobject win32_group -ComputerName $env:COMPUTERNAME -Filter "LocalAccount=True AND SID='S-1-5-32-580'"
     $query = "GroupComponent = `"Win32_Group.Domain='$($group.domain)'`,Name='$($group.name)'`""
     $list = Get-WmiObject win32_groupuser -Filter $query | foreach {[wmi]$_.PartComponent} 
     return $list 
+}
+function Get-LocalRDP {
+    $group = get-wmiobject win32_group -ComputerName $env:COMPUTERNAME -Filter "LocalAccount=True AND SID='S-1-5-32-555'"
+    $query = "GroupComponent = `"Win32_Group.Domain='$($group.domain)'`,Name='$($group.name)'`""
+    $list = Get-WmiObject win32_groupuser -Filter $query | foreach {[wmi]$_.PartComponent} 
+    return $list 
+}
+function Get-LocalDCOM {
+    $group = get-wmiobject win32_group -ComputerName $env:COMPUTERNAME -Filter "LocalAccount=True AND SID='S-1-5-32-562'"
+    $query = "GroupComponent = `"Win32_Group.Domain='$($group.domain)'`,Name='$($group.name)'`""
+    $list = Get-WmiObject win32_groupuser -Filter $query | foreach {[wmi]$_.PartComponent} 
+    return $list 
+}
+function Get-LocalPasswordNotRequired {
+    return (Get-WmiObject -Class Win32_UserAccount -Filter  "LocalAccount='True' AND PasswordRequired='False'")
 }
 function Get-SysInfo {
     <#
@@ -16,39 +31,41 @@ function Get-SysInfo {
     .SYNOPSIS
     Get basic system information from the host
     #>
-    $os_info = gwmi Win32_OperatingSystem
+    $os_info = Get-WmiObject Win32_OperatingSystem
     $date = Get-Date
     $IsHighIntegrity = [bool]([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
-    
     $SysInfoHash = @{            
-        HOSTNAME                = $ENV:COMPUTERNAME                         
-        IPADDRESSES             = (@([System.Net.Dns]::GetHostAddresses($ENV:HOSTNAME)) | %{$_.IPAddressToString}) -join ", "        
+        HostName                = $ENV:COMPUTERNAME                         
+        IPAddresses             = (@([System.Net.Dns]::GetHostAddresses($ENV:HOSTNAME)) | %{$_.IPAddressToString}) -join ", "        
         OS                      = $os_info.caption + ' ' + $os_info.CSDVersion     
-        ARCHITECTURE            = $os_info.OSArchitecture   
-        "DATE(UTC)"             = $date.ToUniversalTime()| Get-Date -uformat  "%Y%m%d%H%M%S"
-        "DATE(LOCAL)"           = $date | Get-Date -uformat  "%Y%m%d%H%M%S%Z"
-        INSTALLDATE             = $os_info.InstallDate
-        USERNAME                = $ENV:USERNAME           
-        DOMAIN                  = (GWMI Win32_ComputerSystem).domain            
-        LOGONSERVER             = $ENV:LOGONSERVER          
-        PSVERSION               = $PSVersionTable.PSVersion.ToString()
-        PSCOMPATIBLEVERSIONS    = ($PSVersionTable.PSCompatibleVersions) -join ', '
-        PSSCRIPTBLOCKLOGGING    = If((Get-ItemProperty HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging -EA 0).EnableScriptBlockLogging -eq 1){"Enabled"} Else {"Disabled"}
-        PSTRANSCRIPTION         = If((Get-ItemProperty HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription -EA 0).EnableTranscripting -eq 1){"Enabled"} Else {"Disabled"}
-        PSTRANSCRIPTIONDIR      = (Get-ItemProperty HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription -EA 0).OutputDirectory
-        PSMODULELOGGING         = If((Get-ItemProperty HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ModuleLogging -EA 0).EnableModuleLogging -eq 1){"Enabled"} Else {"Disabled"}
-        LSASSPROTECTION         = If((Get-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\Lsa -EA 0).RunAsPPL -eq 1){"Enabled"} Else {"Disabled"}
+        Architecture            = $os_info.OSArchitecture   
+        "Date(UTC)"             = $date.ToUniversalTime()| Get-Date -uformat  "%Y%m%d%H%M%S"
+        "Date(LOCAL)"           = $date | Get-Date -uformat  "%Y%m%d%H%M%S%Z"
+        InstallDate             = $os_info.InstallDate
+        Username                = $ENV:USERNAME           
+        Domian                  = (GWMI Win32_ComputerSystem).domain            
+        LogonServer             = $ENV:LOGONSERVER          
+        PSVersion               = $PSVersionTable.PSVersion.ToString()
+        PSCompatibleVersions    = ($PSVersionTable.PSCompatibleVersions) -join ', '
+        PSScriptBlockLogging    = If((Get-ItemProperty HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging -EA 0).EnableScriptBlockLogging -eq 1){"Enabled"} Else {"Disabled"}
+        PSTranscription         = If((Get-ItemProperty HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription -EA 0).EnableTranscripting -eq 1){"Enabled"} Else {"Disabled"}
+        PSTranscriptionDir      = (Get-ItemProperty HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription -EA 0).OutputDirectory
+        PSModuleLogging         = If((Get-ItemProperty HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ModuleLogging -EA 0).EnableModuleLogging -eq 1){"Enabled"} Else {"Disabled"}
+        LsassProtection         = If((Get-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\Lsa -EA 0).RunAsPPL -eq 1){"Enabled"} Else {"Disabled"}
         LAPS                    = If((Get-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft Services\AdmPwd" -EA 0).AdmPwdEnabled -eq 1){"Enabled"} Else {"Disabled"}
-        UACLOCALACCOUNTTOKENFILTERPOLICY = If((Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System -EA 0).LocalAccountTokenFilterPolicy -eq 1){"Disabled (PTH likely w/ non-RID500 Local Admins)"} Else {"Enabled (Remote Administration restricted for non-RID500 Local Admins)"}
-        UACFILTERADMINISTRATORTOKEN = If((Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System -EA 0).FilterAdministratorToken -eq 1){"Enabled (RID500 protected)"} Else {"Disabled (PTH likely with RID500 Account)"}
-        HIGHINTEGRITY           = $IsHighIntegrity
-        DENYRDPCONNECTIONS      = [bool](Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server" -EA 0).FDenyTSConnections
-        LOCALADMINS             = ((Get-LocalAdministrators).name -join ', ')
-        LOCALPSREMOTE           = ((Get-LocalPSRemoters).name -join ', ')
+        UACLocalAccountTokenFilterPolicy = If((Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System -EA 0).LocalAccountTokenFilterPolicy -eq 1){"Disabled (PTH likely w/ non-RID500 Local Admins)"} Else {"Enabled (Remote Administration restricted for non-RID500 Local Admins)"}
+        UACFilterAdministratorToken = If((Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System -EA 0).FilterAdministratorToken -eq 1){"Enabled (RID500 protected)"} Else {"Disabled (PTH likely with RID500 Account)"}
+        HighIntegrity           = $IsHighIntegrity
+        DenyRDPConnections      = [bool](Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server" -EA 0).FDenyTSConnections
+        LocalAdmins             = ((Get-LocalAdministrators).name -join ', ')
+        LocalPSRemote           = ((Get-LocalPSRemote).name -join ', ')
+        LocalDCOM               = ((Get-LocalDCOM).name -join ', ')
+        LocalRDP                = ((Get-LocalRDP).name -join ', ')
+        LocalPasswordNotReq     = ((Get-LocalPasswordNotRequired).name -join ', ')
     }      
     # PS feels the need to randomly re-order everything when converted to an object so let's presort
     $SysInfoObject = New-Object -TypeName PSobject -Property $SysInfoHash 
-    return $SysInfoObject | Select-Object Hostname, OS, Architecture, "Date(UTC)", "Date(Local)", InstallDate, IPAddresses, Domain, Username, LogonServer, PSVersion, PSCompatibleVersions, PSScriptBlockLogging, PSTranscription, PSTranscriptionDir, PSModuleLogging, LSASSProtection, LAPS, UACLocalAccountTokenFilterPolicy, UACFilterAdministratorToken, HighIntegrity, DENYRDPCONNECTIONS, LOCALADMINS, LOCALPSREMOTE
+    return $SysInfoObject | Select-Object Hostname, OS, Architecture, "Date(UTC)", "Date(Local)", InstallDate, IPAddresses, Domain, Username, LogonServer, PSVersion, PSCompatibleVersions, PSScriptBlockLogging, PSTranscription, PSTranscriptionDir, PSModuleLogging, LSASSProtection, LAPS, UACLocalAccountTokenFilterPolicy, UACFilterAdministratorToken, HighIntegrity, DENYRDPCONNECTIONS, LOCALADMINS,LocalPSRemote,LocalDCOM,LocalRDP,LocalPasswordNotReq     
 }
 function Get-LocalSecurityProducts {
     <#
@@ -106,7 +123,11 @@ function Get-LocalSecurityProducts {
     }catch{
         Write-Output "[-] $($_.Exception.Message)"
     	Write-Warning -Message "[-] Error : Could not check Windows Firewall registry informations"	
-    }       
+    }
+    $role = $(get-wmiObject -Class Win32_ComputerSystem).DomainRole
+    if($role -ne 0 -and $role -ne 1){
+        return ($SecInfoHash | Format-List)
+    }
     $SecurityProvider=@{         
         "00" = "None";
         "01" = "Firewall";
@@ -126,10 +147,6 @@ function Get-LocalSecurityProducts {
     $DefinitionStatus = @{
         "00" = "Up-to-date";
         "10" = "Out-of-date"
-    }
-    $role = $(get-wmiObject -Class Win32_ComputerSystem).DomainRole
-    if($role -ne 0 -and $role -ne 1){
-        return
     }
     if(Get-WmiObject -Namespace root -class __NAMESPACE -filter "name='SecurityCenter2'"){
         $securityCenterNS="root\SecurityCenter2"
@@ -1403,17 +1420,41 @@ function Get-ApplicationHost {
     }
     $ErrorActionPreference = $OrigError
 }
+function Invoke-DefenderEnum {
+    $Defender = Get-WmiObject -Class Win32_Service  -Filter "Name='WinDefend'"
+    if($Defender){
+        Write-Output "[*] Starting Windows Defender Audit"
+        if(Get-Module -Name defender){
+            import-module -name Defender -Force
+            Get-MpComputerStatus
+            Get-MpPreference
+            $table = @{
+                MalwareDetected = (Get-MpThreatDetection).count
+                MalwareRemoved = (Get-MpThreatDetection).ActionSuccess.count
+                Top5MalwareProcess = (((Get-MpThreatDetection).ProcessName | Group-Object -NoElement  | Sort-Object -Property count -Descending | Select-Object -First 5).name -join ', ')
+                Top5MalwareUser = (((Get-MpThreatDetection).DomainUser | Group-Object -NoElement  | Sort-Object -Property count -Descending | Select-Object -First 5).name -join ', ')
+            }
+            New-Object -TypeName PSobject -Property $table | Select-Object MalwareDetected,MalwareRemoved,Top5MalwareProcess,Top5MalwareUser
+        }else{
+            Write-Output "[-] Could not find Windows Defender module"
+        }
+    }
+}
 function Invoke-HostEnum {
     <#
     Checking Installed Software, If iis is installed run addition checks
     if mssql is installed download PowerUpSQL.ps1 and audits the databases
     #>
+    param(
+        [string]
+        $PowerUpSQL='https://raw.githubusercontent.com/NetSPI/PowerUpSQL/master/PowerUpSQL.ps1'
+    )
     Write-Output "[*] Installed Software"
     (Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" | Select-Object DisplayName, Publisher, InstallDate)
-    if((Test-Path "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\")){
+    $mssql = Get-WmiObject -Class Win32_Service  -Filter "Name='MSSQLSERVER'"
+    if($mssql){
         Write-Output "[*] Starting MSSQL Audit"
-        $url="https://raw.githubusercontent.com/NetSPI/PowerUpSQL/master/PowerUpSQL.ps1"
-        Invoke-Expression (New-Object System.Net.WebClient).DownloadString($url)
+        Invoke-Expression (New-Object System.Net.WebClient).DownloadString($PowerUpSQL)
         $instances = Get-SQLInstanceLocal | Select-Object instance | Sort-Object -Unique 
         foreach($Instance in $instances){
             $instanceinfo = $instance | Get-SQLServerInfo
@@ -1472,10 +1513,12 @@ function Invoke-HostEnum {
         #Write-Output "[*] Starting Workstation testing"
 
     }elseif($OSinfo -eq 2){
-        #Write-Output "[*] Starting Domain Controller testing"
-
+        Write-Output "[*] Starting Domain Controller testing"
+        Invoke-DefenderEnum
+        
     }elseif($OSinfo -eq 3){
-        #Write-Output "[*] Starting Server testing"
+        Write-Output "[*] Starting Server testing"
+        Invoke-DefenderEnum
     }
 }
 function Invoke-WinEnum {
@@ -1497,8 +1540,7 @@ function Invoke-WinEnum {
         Write-Output "[-] SysInfo Failed"
     }
 
-    #
-    Write-Output "`n[*] Checking Local Security Products"
+    Write-Output "[*] Checking Local Security Products"
     try{
         Get-LocalSecurityProducts
     }catch{
