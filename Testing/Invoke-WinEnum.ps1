@@ -33,7 +33,6 @@ function Get-SysInfo {
     #>
     $os_info = Get-WmiObject Win32_OperatingSystem
     $date = Get-Date
-    $IsHighIntegrity = [bool]([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
     $SysInfoHash = @{            
         HostName                = $ENV:COMPUTERNAME                         
         IPAddresses             = (@([System.Net.Dns]::GetHostAddresses($ENV:HOSTNAME)) | %{$_.IPAddressToString}) -join ", "        
@@ -43,8 +42,9 @@ function Get-SysInfo {
         "Date(LOCAL)"           = $date | Get-Date -uformat  "%Y%m%d%H%M%S%Z"
         InstallDate             = $os_info.InstallDate
         Username                = $ENV:USERNAME           
-        Domian                  = (GWMI Win32_ComputerSystem).domain            
-        LogonServer             = $ENV:LOGONSERVER          
+        Domain                  = (GWMI Win32_ComputerSystem).domain            
+        LogonServer             = $ENV:LOGONSERVER
+        DotNetVersion           = ((Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\*').PSChildName -join ', ')
         PSVersion               = $PSVersionTable.PSVersion.ToString()
         PSCompatibleVersions    = ($PSVersionTable.PSCompatibleVersions) -join ', '
         PSScriptBlockLogging    = If((Get-ItemProperty HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging -EA 0).EnableScriptBlockLogging -eq 1){"Enabled"} Else {"Disabled"}
@@ -55,7 +55,6 @@ function Get-SysInfo {
         LAPS                    = If((Get-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft Services\AdmPwd" -EA 0).AdmPwdEnabled -eq 1){"Enabled"} Else {"Disabled"}
         UACLocalAccountTokenFilterPolicy = If((Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System -EA 0).LocalAccountTokenFilterPolicy -eq 1){"Disabled (PTH likely w/ non-RID500 Local Admins)"} Else {"Enabled (Remote Administration restricted for non-RID500 Local Admins)"}
         UACFilterAdministratorToken = If((Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System -EA 0).FilterAdministratorToken -eq 1){"Enabled (RID500 protected)"} Else {"Disabled (PTH likely with RID500 Account)"}
-        HighIntegrity           = $IsHighIntegrity
         DenyRDPConnections      = [bool](Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server" -EA 0).FDenyTSConnections
         LocalAdmins             = ((Get-LocalAdministrators).name -join ', ')
         LocalPSRemote           = ((Get-LocalPSRemote).name -join ', ')
@@ -65,7 +64,7 @@ function Get-SysInfo {
     }      
     # PS feels the need to randomly re-order everything when converted to an object so let's presort
     $SysInfoObject = New-Object -TypeName PSobject -Property $SysInfoHash 
-    return $SysInfoObject | Select-Object Hostname, OS, Architecture, "Date(UTC)", "Date(Local)", InstallDate, IPAddresses, Domain, Username, LogonServer, PSVersion, PSCompatibleVersions, PSScriptBlockLogging, PSTranscription, PSTranscriptionDir, PSModuleLogging, LSASSProtection, LAPS, UACLocalAccountTokenFilterPolicy, UACFilterAdministratorToken, HighIntegrity, DENYRDPCONNECTIONS, LOCALADMINS,LocalPSRemote,LocalDCOM,LocalRDP,LocalPasswordNotReq     
+    return $SysInfoObject | Select-Object Hostname, OS, Architecture, "Date(UTC)", "Date(Local)", InstallDate, IPAddresses, Domain, Username, LogonServer, DotNetVersion, PSVersion, PSCompatibleVersions, PSScriptBlockLogging, PSTranscription, PSTranscriptionDir, PSModuleLogging, LSASSProtection, LAPS, UACLocalAccountTokenFilterPolicy, UACFilterAdministratorToken, DENYRDPCONNECTIONS, LOCALADMINS,LocalPSRemote,LocalDCOM,LocalRDP,LocalPasswordNotReq     
 }
 function Get-LocalSecurityProducts {
     <#
@@ -648,7 +647,7 @@ function Get-WriteableScheduledTasks {
             }
         }
     }
-    if($list -eq 0){
+    if($list.Count -eq 0){
         return "[+] Non Writeable Scheduled Task Path Found"
     }else{
         return $list
@@ -1423,9 +1422,13 @@ function Get-ApplicationHost {
 function Invoke-DefenderEnum {
     $Defender = Get-WmiObject -Class Win32_Service  -Filter "Name='WinDefend'"
     if($Defender){
-        Write-Output "[*] Starting Windows Defender Audit"
-        if(Get-Module -Name defender){
-            import-module -name Defender -Force
+        if(Get-Module -Name defender -ListAvailable){
+            try{
+                import-module -name Defender -Force -ErrorAction Stop
+            }catch{
+                Write-Output "[-] Could import Windows Defender module"
+                return
+            }
             Get-MpComputerStatus
             Get-MpPreference
             $table = @{
@@ -1442,88 +1445,119 @@ function Invoke-DefenderEnum {
 }
 function Invoke-HostEnum {
     <#
-    Checking Installed Software, If iis is installed run addition checks
-    if mssql is installed download PowerUpSQL.ps1 and audits the databases
+    Checking Installed Software
+    if mssql is installed download PowerUpSQL.ps1 and audit the databases
+    if IIS is installed audit WebConfig and Application host pool
+    if Server or DC, Enumerate Windows Defender
     #>
     param(
         [string]
         $PowerUpSQL='https://raw.githubusercontent.com/NetSPI/PowerUpSQL/master/PowerUpSQL.ps1'
     )
     Write-Output "[*] Installed Software"
-    (Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" | Select-Object DisplayName, Publisher, InstallDate)
+    (Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" | where {$_.DisplayName} | Select-Object DisplayName, Publisher, InstallDate)
     $mssql = Get-WmiObject -Class Win32_Service  -Filter "Name='MSSQLSERVER'"
     if($mssql){
-        Write-Output "[*] Starting MSSQL Audit"
-        Invoke-Expression (New-Object System.Net.WebClient).DownloadString($PowerUpSQL)
-        $instances = Get-SQLInstanceLocal | Select-Object instance | Sort-Object -Unique 
-        foreach($Instance in $instances){
-            $instanceinfo = $instance | Get-SQLServerInfo
-            if($instanceinfo){
-                    $instanceinfo
-                    #test if SQL Server is configured with default passwords.
-                    $instanceinfo | Invoke-SQLAuditDefaultLoginPw 
-                    # enumerateSQL Server logins and the current login and test for "username" as password for each enumerated login.
-                    $instanceinfo | Invoke-SQLAuditWeakLoginPw 
-                    #Check if any SQL Server links are configured with remote credentials.
-                    $instanceinfo | Invoke-SQLAuditPrivServerLink 
-                    #SQL Server Links
-                    $instanceinfo | Get-SQLServerLinkCrawl 
-                    #Check if any databases have been configured as trustworthy
-                    $instanceinfo | Invoke-SQLAuditPrivTrustworthy 
-                    #Check if data ownership chaining is enabled at the server or databases levels.
-                    $instanceinfo | Invoke-SQLAuditPrivDbChaining 
-                    #This will return stored procedures using dynamic SQL and the EXECUTE AS OWNER clause that may suffer from SQL injection.
-                    $instanceinfo | Invoke-SQLAuditSQLiSpExecuteAs 
-                    #This will return stored procedures using dynamic SQL and the EXECUTE AS OWNER clause that may suffer from SQL injection.
-                    $instanceinfo | Invoke-SQLAuditSQLiSpSigned 
-                    #heck if any databases have been configured as trustworthy.
-                    $instanceinfo | Invoke-SQLAuditPrivAutoExecSp 
-                    #Non default database status
-                    $instanceinfo | Get-SQLDatabase  -NoDefaults 
-                    #acl for database path
-                    $instanceinfo | Get-SQLDatabase | Sort-Object -Unique -Property FileName | foreach {Get-ModifiablePath -Path $_.FileName -ErrorAction Continue}
-                    #sql users
-                    $instanceinfo | Get-SQLServerRoleMember 
-                    $instanceinfo | Get-SQLColumnSampleDataThreaded  -Threads 20 -Keyword  "credit,ssn,password" -SampleSize 2 -ValidateCC -NoDefaults
-                    #search database for keywords in non default databases
-            }else{
-                Write-Output "[-] Cant Enumerate Instance $($Instance.Instance)"
+        Write-Output "`n[*] Starting MSSQL Audit"
+        try{
+            Invoke-Expression (New-Object System.Net.WebClient).DownloadString($PowerUpSQL)
+            $check = $true
+        }catch{
+            Write-Output "[-] Invoke-Expression (New-Object net.webclient).DownloadString Failed"
+        }
+        if(-not($check)){
+            try{
+                Invoke-Expression (Invoke-WebRequest -UseBasicParsing -Uri $PowerUpSQL -ErrorAction Stop).content 
+                $check = $true
+            }catch{
+                Write-Output "[-] Invoke-WebRequest Failed"
+            }
+        }
+        if($check){
+            $instances = Get-SQLInstanceLocal | Select-Object instance | Sort-Object -Unique 
+            foreach($Instance in $instances){
+                $instanceinfo = $instance | Get-SQLServerInfo
+                if($instanceinfo){
+                        Write-Output "`n[*] MSSQL Info"
+                        $instanceinfo | Format-List
+                        Write-Output "[*] MSSQL Links"
+                        $instanceinfo | Get-SQLServerLinkCrawl  | Format-List
+                        Write-Output "[*] MSSQL Users"
+                        $instanceinfo | Get-SQLServerRoleMember | Format-List
+                        #test if SQL Server is configured with default passwords.
+                        $instanceinfo | Invoke-SQLAuditDefaultLoginPw | Format-List
+                        # enumerateSQL Server logins and the current login and test for "username" as password for each enumerated login.
+                        $instanceinfo | Invoke-SQLAuditWeakLoginPw | Format-List
+                        #Check if any SQL Server links are configured with remote credentials.
+                        $instanceinfo | Invoke-SQLAuditPrivServerLink  | Format-List
+                        #Check if any databases have been configured as trustworthy
+                        $instanceinfo | Invoke-SQLAuditPrivTrustworthy | Format-List
+                        #Check if data ownership chaining is enabled at the server or databases levels.
+                        $instanceinfo | Invoke-SQLAuditPrivDbChaining | Format-List
+                        #This will return stored procedures using dynamic SQL and the EXECUTE AS OWNER clause that may suffer from SQL injection.
+                        $instanceinfo | Invoke-SQLAuditSQLiSpExecuteAs | Format-List
+                        #This will return stored procedures using dynamic SQL and the EXECUTE AS OWNER clause that may suffer from SQL injection.
+                        $instanceinfo | Invoke-SQLAuditSQLiSpSigned | Format-List
+                        #heck if any databases have been configured as trustworthy.
+                        $instanceinfo | Invoke-SQLAuditPrivAutoExecSp | Format-List
+                        #Non default database status
+                        $instanceinfo | Get-SQLDatabase -NoDefaults | Format-List
+                        #acl for database path
+                        $instanceinfo | Get-SQLDatabase | Sort-Object -Unique -Property FileName | foreach {Get-ModifiablePath -Path $_.FileName -ErrorAction Continue | Format-List}
+                        #search database for keywords in non default databases
+                        $instanceinfo | Get-SQLColumnSampleDataThreaded -Threads 20 -Keyword "credit,ssn,password" -SampleSize 2 -ValidateCC -NoDefaults | Format-List
+                }else{
+                    Write-Output "[-] Cant Enumerate Instance $($Instance.Instance)"
+                }
             }
         }
     }
     if(Test-Path "HKLM:\SOFTWARE\Microsoft\InetStp\"){
-        Write-Output "[*] Starting IIS testing"
-        #Recover cleartext and encrypted connection strings from all web.config files on the system. Also, it will decrypt them if needed.
+        Write-Output "`n[*] Starting IIS testing"
+        #https://powersploit.readthedocs.io/en/latest/Privesc/Get-WebConfig/
         Write-Output "[*] Checking WebConfig"
         try{
-            Get-WebConfig
+            $WebConfig = Get-WebConfig -ErrorAction Stop
+            if($WebConfig){
+                Write-Output "[-] WebConfig Credentials Found"
+                $WebConfig
+            }else{
+                Write-Output "[+] No WebConfig Credentials Found"
+            }
         }catch{
-            Write-Output "[-] Checking WebConfig Failed"
+            Write-Output "[-] WebConfig Failed"
         }
-        #Recovers encrypted application pool and virtual directory passwords from the applicationHost.config on the system.
+        #https://powersploit.readthedocs.io/en/latest/Privesc/Get-ApplicationHost/
         Write-Output "[*] Checking Application Pool"
         try{
-            Get-ApplicationHost
+            $ApplicationHost = Get-ApplicationHost -ErrorAction Stop
+            if($ApplicationHost){
+                Write-Output "[-] ApplicationHost Credentials Found"
+                $ApplicationHost
+            }else{
+                Write-Output "[+] No ApplicationHost Credentials Found"
+            }
         }catch{
-            Write-Output "[-] Checking Application Pool Failed"
+            Write-Output "[-] ApplicationHost Failed"
         }
     }
     $OSinfo = (Get-CimInstance -ClassName Win32_OperatingSystem).ProductType
     if($OSinfo -eq 1){
-        #Write-Output "[*] Starting Workstation testing"
-
-    }elseif($OSinfo -eq 2){
-        Write-Output "[*] Starting Domain Controller testing"
+        Write-Output "`n[*] Starting Workstation testing"
+        Write-Output "[*] PowerShell Version 2: $((Get-WindowsOptionalFeature -Online -FeatureName MicrosoftWindowsPowerShellV2).state)"
+    }else{
+        Write-Output "`n[*] Starting Server testing"
+        Write-Output "[*] Starting Windows Defender Audit"
         Invoke-DefenderEnum
-        
-    }elseif($OSinfo -eq 3){
-        Write-Output "[*] Starting Server testing"
-        Invoke-DefenderEnum
+        Write-Output "[*] Print Spooler Status"
+        (Get-WmiObject -Class Win32_Service  -Filter "Name='Spooler'" | Format-Table Name,DisplayName,Status,State,StartMode)
+        Write-Output "[*] PowerShell Version 2: $((Get-WindowsFeature PowerShell-V2 -ErrorAction SilentlyContinue).InstallState)"
     }
 }
 function Invoke-WinEnum {
-    #
+    #Start timer
     $timer = [Diagnostics.Stopwatch]::StartNew()
+
     #Get Local admins for acl checking
     $LocalAdmins = Get-LocalAdministrators
     $Admins = @(
@@ -1533,6 +1567,8 @@ function Invoke-WinEnum {
         'Administrators'
         $LocalAdmins.name
     )
+
+    #
     Write-Output "`n[*] Checking System Information"
     try{
         Get-SysInfo
@@ -1540,6 +1576,7 @@ function Invoke-WinEnum {
         Write-Output "[-] SysInfo Failed"
     }
 
+    #
     Write-Output "[*] Checking Local Security Products"
     try{
         Get-LocalSecurityProducts
@@ -1674,7 +1711,7 @@ function Invoke-WinEnum {
     }
     
     Write-Output "`n[*] Enumerating host.."
-    Invoke-HostEnum | Format-List
+    Invoke-HostEnum 
     
     Write-Output "Scan took $($timer.Elapsed.TotalSeconds) Seconds"
     $timer.Stop()
