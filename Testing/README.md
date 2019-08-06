@@ -31,8 +31,6 @@ Scripts written to aid automated scanning during whitebox security/vuln assessme
 * MSSQL (Links, Users, Default and Weak Passwords, Databases, ACL on .mdf, Vulnerable configurations...)
 
 (ACL's for System, Local Administrators, and TrustedInstaller is being ignored)
-### Invoke-Chaps.ps1
-	Invoke-Chaps		-  Secure baseline checks (Modified version of chaps.ps1 originally written by cutaway)
 ### Test-Linux.ps1
 	Invoke-Linux		-  Run Bash script on multiple hosts simultaneously with Posh-SSH
 ### Test-Windows.ps1
